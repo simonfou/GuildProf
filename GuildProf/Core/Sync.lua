@@ -1,0 +1,237 @@
+local _, ns = ...
+
+-- Sync protocol. Design and message costs: docs/design.md, "Sync".
+--
+--   H<digest>                      GUILD    newcomer: hash of its whole table
+--   A<newcomer>\t<digest>          GUILD    one peer whose hash differs: "sync with me"
+--   B<d0>,<d1>,...,<d15>           WHISPER  newcomer -> peer: per-bucket hashes
+--   M<i>:<owner=rev,...>;...       WHISPER  peer -> newcomer: entries of the buckets that differ
+--   N<owner>,<owner>,...           WHISPER  newcomer -> peer: records it needs
+--   R<owner>\t<rev>\t<data>        GUILD    a character's own record, when it changes
+--                                  WHISPER  any record, during a sync
+--
+-- In sync (the common case) a login costs one GUILD message.
+
+local Codec, Store, Comm = ns.Codec, ns.Store, ns.Comm
+local Sync = {}
+ns.Sync = Sync
+
+local HELLO_WINDOW = 20      -- seconds the newcomer waits for an A
+local ACK_DELAY_MIN = 5      -- tenths of a second
+local ACK_DELAY_MAX = 30
+local ACK_MEMORY = 30        -- seconds an A for a newcomer suppresses others
+local PUBLISH_DELAY = 5      -- coalesce several profession windows
+
+local waiting      -- time the player's H went out, while an A is awaited
+local syncPeer
+local plannedAck = {} -- newcomer -> true while an A to it is scheduled
+local heardAck = {}   -- newcomer -> time an A for it was heard
+local publishPlanned
+
+local function now()
+	return GetTime()
+end
+
+local function sendRecord(kind, owner, target)
+	local r = Store.Get(owner)
+	if r then
+		Comm.Send(kind, "R" .. owner .. "\t" .. Codec.ToB36(r.rev) .. "\t" .. r.data, target)
+	end
+end
+
+function Sync.Hello()
+	if not Store.IsBound() or ns.solo then
+		return
+	end
+	waiting, syncPeer = now(), nil
+	Comm.Send("GUILD", "H" .. Store.Digest())
+end
+
+-- Rebuilds the player's own record from the scanner's view and broadcasts it when
+-- it changed. `profs` uses the Codec.EncodeProfs shape.
+function Sync.SetOwn(profs)
+	if not Store.IsBound() or not ns.me then
+		return
+	end
+	local data = Codec.EncodeProfs(profs)
+	local cur = Store.Get(ns.me)
+	if cur and cur.data == data then
+		return
+	end
+	-- Server time keeps revs increasing across devices and lost SavedVariables.
+	local rev = math.max(GetServerTime(), cur and (cur.rev + 1) or 0)
+	Store.Put(ns.me, rev, data)
+	if ns.OnRecordChanged then
+		ns.OnRecordChanged(ns.me)
+	end
+	if not ns.solo and not publishPlanned then
+		publishPlanned = true
+		C_Timer.After(PUBLISH_DELAY, function()
+			publishPlanned = false
+			sendRecord("GUILD", ns.me)
+		end)
+	end
+end
+
+-- The player's own record again, e.g. once the server's form of the name is known.
+function Sync.PublishOwn()
+	if Store.IsBound() and ns.me and Store.Get(ns.me) then
+		sendRecord("GUILD", ns.me)
+	end
+end
+
+-- The key other players see for the player is the `sender` the server puts
+-- on the player's messages ("First Surname" on Forever, which the client's
+-- own name APIs do not spell the same way). Comm calls this with the sender
+-- of the echo of the player's own GUILD message, which gives that exact
+-- form. Returns false when the sender cannot be the player.
+function Sync.OnOwnEcho(sender)
+	local base = ns.baseName
+	if not base or type(sender) ~= "string" or sender:sub(1, #base) ~= base then
+		return false
+	end
+	if sender ~= ns.me then
+		local renamed = ns.me and Store.Get(ns.me)
+		if ns.me then
+			Store.Rename(ns.me, sender)
+		end
+		ns.me = sender
+		if ns.OnOwnName then
+			ns.OnOwnName(sender)
+		end
+		-- Anything sent under the guessed name was refused by the others.
+		if renamed then
+			C_Timer.After(1, Sync.PublishOwn)
+		end
+	end
+	return true
+end
+ns.OnOwnEcho = Sync.OnOwnEcho
+
+local handlers = {}
+
+handlers.H = function(body, channel, sender)
+	if channel ~= "GUILD" or body == Store.Digest() or plannedAck[sender] then
+		return
+	end
+	plannedAck[sender] = true
+	C_Timer.After(ns.random(ACK_DELAY_MIN, ACK_DELAY_MAX) / 10, function()
+		plannedAck[sender] = nil
+		local heard = heardAck[sender]
+		if heard and now() - heard < ACK_MEMORY then
+			return
+		end
+		Comm.Send("GUILD", "A" .. sender .. "\t" .. Store.Digest())
+	end)
+end
+
+handlers.A = function(body, channel, sender)
+	local newcomer, digest = body:match("^([^\t]+)\t(.*)$")
+	if not newcomer or channel ~= "GUILD" then
+		return
+	end
+	heardAck[newcomer] = now()
+	if newcomer ~= ns.me or not waiting or syncPeer then
+		return
+	end
+	if now() - waiting > HELLO_WINDOW or digest == Store.Digest() then
+		return
+	end
+	syncPeer = sender
+	local list = {}
+	local buckets = Store.BucketDigests()
+	for i = 0, Store.BUCKETS - 1 do
+		list[#list + 1] = buckets[i]
+	end
+	Comm.Send("WHISPER", "B" .. table.concat(list, ","), sender)
+end
+
+handlers.B = function(body, channel, sender)
+	if channel ~= "WHISPER" then
+		return
+	end
+	local theirs = {}
+	for d in (body .. ","):gmatch("([^,]*),") do
+		theirs[#theirs + 1] = d
+	end
+	local mine = Store.BucketDigests()
+	local parts = {}
+	for i = 0, Store.BUCKETS - 1 do
+		if theirs[i + 1] ~= mine[i] then
+			parts[#parts + 1] = Codec.ToB36(i) .. ":" .. Store.BucketLine(i)
+		end
+	end
+	Comm.Send("WHISPER", "M" .. table.concat(parts, ";"), sender)
+end
+
+handlers.M = function(body, channel, sender)
+	if channel ~= "WHISPER" or sender ~= syncPeer then
+		return
+	end
+	syncPeer, waiting = nil, nil
+	local need = {}
+	if body == "" then
+		return
+	end
+	for chunk in (body .. ";"):gmatch("([^;]*);") do
+		local i, line = chunk:match("^([0-9a-z]+):(.*)$")
+		i = i and Codec.FromB36(i)
+		if i then
+			local theirs = {}
+			for owner, rev in (line .. ","):gmatch("([^,=]+)=([0-9a-z]+),") do
+				theirs[owner] = Codec.FromB36(rev)
+				local r = Store.Get(owner)
+				if not r or r.rev < theirs[owner] then
+					need[#need + 1] = owner
+				end
+			end
+			for _, owner in ipairs(Store.Owners()) do
+				if Store.BucketOf(owner) == i then
+					local t = theirs[owner]
+					if not t or t < Store.Get(owner).rev then
+						sendRecord("WHISPER", owner, sender)
+					end
+				end
+			end
+		end
+	end
+	if #need > 0 then
+		Comm.Send("WHISPER", "N" .. table.concat(need, ","), sender)
+	end
+end
+
+handlers.N = function(body, channel, sender)
+	if channel ~= "WHISPER" then
+		return
+	end
+	for owner in (body .. ","):gmatch("([^,]+),") do
+		sendRecord("WHISPER", owner, sender)
+	end
+end
+
+handlers.R = function(body, channel, sender)
+	local owner, rev, data = body:match("^([^\t]+)\t([0-9a-z]+)\t(.*)$")
+	rev = rev and Codec.FromB36(rev)
+	if not rev then
+		return
+	end
+	-- On the guild channel a character only speaks for itself.
+	if channel == "GUILD" and owner ~= sender then
+		return
+	end
+	if Store.Put(owner, rev, data) then
+		ns.OnRecordChanged(owner)
+	end
+end
+
+function Sync.OnBody(body, channel, sender)
+	if sender == ns.me or not Store.IsBound() then
+		return
+	end
+	local h = handlers[body:sub(1, 1)]
+	if h then
+		h(body:sub(2), channel, sender)
+	end
+end
+
+Comm.SetHandler(Sync.OnBody)
