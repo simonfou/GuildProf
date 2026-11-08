@@ -58,12 +58,17 @@ replaced. `/gp` floats the window again at 820 x 500.
 
 Recipes come from two sources, merged:
 
-- **At login and on every skill or recipe change** (`SKILL_LINES_CHANGED`,
+- **At login, again 10, 30 and 90 s later, and on every spellbook, skill
+  or recipe change** (`SPELLS_CHANGED`, `SKILL_LINES_CHANGED`,
   `NEW_RECIPE_LEARNED`): each recipe of the player's professions in the
   generated table is checked with `C_SpellBook.IsSpellKnown`, then
-  `IsSpellKnownOrInSpellBook`. A method is rejected for a profession when
-  it errors, finds nothing, or calls known a recipe whose required skill is
-  above the player's (impossible). The diag line compares its count with
+  `IsSpellKnownOrInSpellBook`. The spellbook can still be loading at the
+  first scan of a session. A method is rejected for a profession when it
+  errors, finds nothing, or calls known 90 % or more of a profession of
+  over 20 recipes (it answers true for any spell). The data's minimum skill
+  is no test: 13 Blacksmithing recipes have a minimum above the skill at
+  which they turn grey (Coarse Sharpening Stone: minimum 75, grey at 55),
+  so a known recipe can exceed it. The diag line compares the count with
   the last window scan (GP10).
 - **From the profession window**, while it shows a
   profession (`C_TradeSkillUI`, Retail API on Forever: the frame opens on a

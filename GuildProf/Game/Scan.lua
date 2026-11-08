@@ -1,8 +1,9 @@
 local _, ns = ...
 
--- Reads the player's own professions. Levels come from the spellbook API
--- at any time; the recipe list only while the player's own profession
--- window is open (not a linked, guild or NPC crafting view).
+-- Reads the player's own professions: levels and known recipes from the
+-- spellbook API at any time, and the recipe list again whenever the
+-- player's own profession window is open (not a linked, guild or NPC
+-- crafting view).
 --
 -- Every pass writes one line of what it saw to GuildProfDB.diag (shown by
 -- /gp status, and readable on disk after a /reload).
@@ -40,11 +41,18 @@ end
 -- of preference. Each is checked before its answer is used.
 local METHODS = { "IsSpellKnown", "IsSpellKnownOrInSpellBook" }
 
+-- A method that calls known nearly every recipe of a large profession
+-- answers true for any spell.
+local CLAIMS_ALL = 0.9
+local LARGE = 20
+
 -- Known recipes of one profession, read from the spellbook API against
 -- the generated recipe table. A method is rejected when it errors, finds
--- nothing, or calls known a recipe above the player's skill (impossible).
+-- nothing, or claims nearly the whole profession. The data's minimum skill
+-- is not a test: some Blacksmithing minimums sit above the skill at which
+-- the recipe turns grey, so known recipes can exceed it.
 -- Returns ids and the method name, or nil and the reasons.
-local function spellbookRecipes(sl, level)
+local function spellbookRecipes(sl)
 	if not C_SpellBook then
 		return nil, "no C_SpellBook"
 	end
@@ -52,21 +60,18 @@ local function spellbookRecipes(sl, level)
 	for _, name in ipairs(METHODS) do
 		local fn = C_SpellBook[name]
 		if fn then
-			local ids, impossible = {}, 0
+			local ids, total = {}, #recipesOf(sl)
 			local ok = pcall(function()
 				for _, id in ipairs(recipesOf(sl)) do
 					if fn(id) then
 						ids[#ids + 1] = id
-						if ns.Recipes[id][2] > level then
-							impossible = impossible + 1
-						end
 					end
 				end
 			end)
 			if not ok then
 				reasons[#reasons + 1] = name .. " error"
-			elseif impossible > 0 then
-				reasons[#reasons + 1] = name .. " " .. impossible .. " above skill"
+			elseif total > LARGE and #ids >= total * CLAIMS_ALL then
+				reasons[#reasons + 1] = name .. " claims " .. #ids .. " of " .. total
 			elseif #ids == 0 then
 				reasons[#reasons + 1] = name .. " none"
 			else
@@ -80,7 +85,7 @@ end
 -- Merges the spellbook's answer into a profession entry and describes the
 -- comparison with the last window scan.
 local function addSpellbookRecipes(p, sl)
-	local sb, how = spellbookRecipes(sl, p.level or 0)
+	local sb, how = spellbookRecipes(sl)
 	if not sb then
 		return "spellbook: " .. how
 	end

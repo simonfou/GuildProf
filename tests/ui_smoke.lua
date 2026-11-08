@@ -117,12 +117,20 @@ end
 UnitName = function() return "Alice" end
 UnitFullName = function() return "Alice", nil end
 Ambiguate = function(n) return n end
-GetProfessions = function() return 1, 2 end
+-- The spellbook answers nothing during the first seconds, as on a first login.
+GetProfessions = function()
+	if clock < 5 then return end
+	return 1, 2, 3
+end
 GetProfessionInfo = function(i)
 	if i == 1 then return "Tailoring", 0, 112, 150, 0, 0, 197 end
-	return "Enchanting", 0, 126, 150, 0, 0, 333
+	if i == 2 then return "Enchanting", 0, 126, 150, 0, 0, 333 end
+	return "Blacksmithing", 0, 126, 150, 0, 0, 164
 end
-C_SpellBook = { IsSpellKnown = function(id) return id == 2963 or id == 7418 end }
+-- 2675: a Blacksmithing recipe whose data minimum (135) is above the skill.
+local known = { [2963] = true, [7418] = true, [2672] = true, [2675] = true }
+local claimAll
+C_SpellBook = { IsSpellKnown = function(id) return claimAll or known[id] or false end }
 C_TradeSkillUI = { GetTradeSkillDisplayName = function() return nil end }
 C_Spell = {
 	GetSpellName = function(id) return "Spell " .. id end,
@@ -186,6 +194,9 @@ local ok, err = pcall(function()
 	event("ADDON_LOADED", "GuildProf")
 	event("PLAYER_LOGIN")
 	runTimers(clock + 3)
+	local early = ns.Store.Get(ns.me)
+	check(not (early and ns.Codec.DecodeProfs(early.data)[197]), "spellbook still empty at the first scan")
+	runTimers(clock + 9) -- the follow-up scan at 10 s
 
 	-- A second member's record arrives over the guild channel.
 	local C = ns.Codec
@@ -196,7 +207,10 @@ local ok, err = pcall(function()
 
 	-- Spellbook scan stored the player's recipes without any window.
 	local own = ns.Store.Get(ns.me)
-	check(own and C.DecodeProfs(own.data)[197].ids ~= nil, "spellbook scan stored Tailoring recipes")
+	check(own and C.DecodeProfs(own.data)[197].ids ~= nil, "a later scan stored Tailoring recipes")
+	local bs = own and C.DecodeProfs(own.data)[164]
+	local bsIds = bs and bs.ids and C.DecodeIDs(bs.ids) or {}
+	check(#bsIds == 2, "Blacksmithing recipes kept despite a data minimum above the skill (" .. #bsIds .. ")")
 
 	ns.UI.Toggle()
 	check(GuildProfFrame:IsShown(), "window opens")
@@ -324,6 +338,27 @@ ok, err = pcall(function()
 	check(found, "/gp status shows the last prune")
 end)
 check(ok, "prune: " .. tostring(err))
+
+-- Spellbook scans: a method that calls every recipe known is rejected and
+-- the record keeps its recipes; SPELLS_CHANGED rescans.
+ok, err = pcall(function()
+	local C = ns.Codec
+	local function tailoring()
+		local p = C.DecodeProfs(ns.Store.Get(ns.me).data)[197]
+		return p and p.ids and C.DecodeIDs(p.ids) or {}
+	end
+	claimAll = true
+	ns.Scan.Basic()
+	claimAll = nil
+	check(#tailoring() == 1, "a method claiming every recipe is rejected (" .. #tailoring() .. " kept)")
+	check(ns.db.diag.basic:find("claims", 1, true), "diag names the rejection: " .. tostring(ns.db.diag.basic))
+	check(ns.Recipes[2964] and ns.Recipes[2964][1] == 197, "2964 is a Tailoring recipe")
+	known[2964] = true
+	event("SPELLS_CHANGED")
+	runTimers(clock + 2)
+	check(#tailoring() == 2, "SPELLS_CHANGED rescans (" .. #tailoring() .. ")")
+end)
+check(ok, "scans: " .. tostring(err))
 
 -- Versions: a member's newer V puts an update row at the top of the list;
 -- clicking it shows the download link, selected and read-only.

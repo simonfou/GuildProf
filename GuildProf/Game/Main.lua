@@ -117,6 +117,7 @@ end
 ---------------------------------------------------------------- guild binding
 
 local boundKey
+local followUps
 
 local function bindGuild()
 	local key
@@ -150,6 +151,15 @@ local function bindGuild()
 	end
 	ns.Debug("guild", key == "" and "(none)" or key, #Store.Owners(), "records")
 	C_Timer.After(2, ns.Scan.Basic)
+	-- The spellbook can still be loading at the first scans, on a first
+	-- login above all: scan again a few times; nothing is sent unless the
+	-- record changed.
+	if not followUps then
+		followUps = true
+		for _, t in ipairs({ 10, 30, 90 }) do
+			C_Timer.After(t, ns.Scan.Basic)
+		end
+	end
 	if not ns.solo then
 		C_Timer.After(ns.random(30, 60) / 10, Sync.Hello)
 	end
@@ -211,7 +221,7 @@ handlers.TRADE_SKILL_SHOW = function() ns.Scan.Schedule("TRADE_SKILL_SHOW") end
 handlers.TRADE_SKILL_LIST_UPDATE = function() ns.Scan.Schedule("TRADE_SKILL_LIST_UPDATE") end
 
 local basicPlanned
-handlers.SKILL_LINES_CHANGED = function()
+local function scanSoon()
 	if basicPlanned then return end
 	basicPlanned = true
 	C_Timer.After(1, function()
@@ -220,8 +230,11 @@ handlers.SKILL_LINES_CHANGED = function()
 	end)
 end
 
+handlers.SKILL_LINES_CHANGED = scanSoon
 -- A recipe learned from a trainer or a recipe item.
-handlers.NEW_RECIPE_LEARNED = function() handlers.SKILL_LINES_CHANGED() end
+handlers.NEW_RECIPE_LEARNED = scanSoon
+-- The spellbook finished loading or changed.
+handlers.SPELLS_CHANGED = scanSoon
 
 handlers.GET_ITEM_INFO_RECEIVED = function() ns.UI.RefreshSoon() end
 
