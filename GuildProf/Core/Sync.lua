@@ -10,6 +10,10 @@ local _, ns = ...
 --   R<owner>\t<rev>\t<data>        GUILD    a character's own record, when it changes
 --                                  WHISPER  any record, during a sync
 --
+-- Whispers are accepted only from players heard on the guild channel this
+-- session: the server delivers that channel to guild members only, and
+-- every sync starts there (the newcomer's H, the peer's A).
+--
 -- In sync (the common case) a login costs one GUILD message.
 
 local Codec, Store, Comm = ns.Codec, ns.Store, ns.Comm
@@ -35,7 +39,7 @@ local plannedAck = {} -- newcomer -> true while an A to it is scheduled
 local heardAck = {}   -- newcomer -> time an A for it was heard
 local publishPlanned
 
--- Senders heard on the guild channel this session: guild members for sure.
+-- Senders heard on the guild channel this session: guild members.
 Sync.heard = {}
 
 local function isFormer(owner)
@@ -314,6 +318,9 @@ end
 function Sync.OnBody(body, channel, sender)
 	if channel == "GUILD" then
 		Sync.heard[sender] = true
+	elseif not Sync.heard[sender] then
+		log(body:sub(1, 1), "whisper from", sender, "not heard on the guild channel: ignored")
+		return
 	end
 	if sender == ns.me or not Store.IsBound() then
 		return

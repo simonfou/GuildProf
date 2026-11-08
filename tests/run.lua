@@ -62,8 +62,9 @@ local function deliver(from, text, kind, target)
 	assert(#text <= 255, "message over 255 bytes")
 	assert(not text:find("[%z|]"), "forbidden byte in message")
 	if kind == "GUILD" then
+		local guild = nodes[from].guild
 		for _, n in pairs(nodes) do
-			if n.online then
+			if n.online and n.guild == guild then
 				after(LATENCY, function()
 					if n.online then
 						n.ns.Comm.OnMessage("GuildProf", text, "GUILD", from)
@@ -86,7 +87,7 @@ local function deliver(from, text, kind, target)
 end
 
 local function newNode(name)
-	local node = { name = name, online = false, db = {} }
+	local node = { name = name, online = false, db = {}, guild = "TestGuild" }
 	local ns = {}
 	local env = setmetatable({}, { __index = _G })
 	env.GetTime = function() return clock end
@@ -129,7 +130,7 @@ local function login(node)
 	node.online = true
 	node.ns.me = node.guess or node.name
 	node.ns.baseName = node.name:match("^%S+")
-	node.ns.Store.Bind(node.db, "TestGuild")
+	node.ns.Store.Bind(node.db, node.guild)
 	node.ns.Sync.heard = {} -- a new session
 	after(1, function() node.ns.Sync.Hello() end)
 end
@@ -456,6 +457,42 @@ do
 	end
 	check(converged == total, "after the departure: all online converge (" .. converged .. "/" .. total .. ")")
 	print(("departure (holdout sync + one login): GUILD %d, WHISPER %d"):format(traffic.GUILD, traffic.WHISPER))
+end
+
+-- 9. A player of another guild with the addon: its guild channel never
+-- reaches this guild, and whispering a member directly gets no records
+-- out and none in.
+do
+	local member = nodes[names[20]]
+	local victim = names[1]
+	local before = member.ns.Store.Get(victim).rev
+	local outsider = newNode("Outsider Stranger")
+	outsider.guild = "OtherGuild"
+	login(outsider)
+	after(3, function() outsider.ns.Sync.SetOwn(randomProfs()) end)
+	runUntil(clock + 30)
+	check(member.ns.Store.Get("Outsider Stranger") == nil, "another guild's record never arrives")
+	check(#outsider.ns.Store.Owners() == 1, "another guild sees none of this guild's records ("
+		.. #outsider.ns.Store.Owners() .. ")")
+
+	local got, lines = 0, {}
+	local onMessage = outsider.ns.Comm.OnMessage
+	outsider.ns.Comm.OnMessage = function(...) got = got + 1 return onMessage(...) end
+	member.ns.Log = function(t) lines[#lines + 1] = t end
+	local empty = {}
+	for i = 1, 16 do empty[i] = "0" end
+	outsider.ns.Comm.Send("WHISPER", "B" .. table.concat(empty, ","), member.name)
+	outsider.ns.Comm.Send("WHISPER", "N" .. victim, member.name)
+	outsider.ns.Comm.Send("WHISPER", "R" .. victim .. "\t" .. C.ToB36(before + 1000) .. "\t"
+		.. C.EncodeProfs(randomProfs()), member.name)
+	runUntil(clock + 10)
+	check(got == 0, "whispered B and N from outside the guild: no answer (" .. got .. " messages)")
+	check(member.ns.Store.Get(victim).rev == before, "whispered R from outside the guild: not stored")
+	local ignored = 0
+	for _, l in ipairs(lines) do
+		if l:find("not heard on the guild channel: ignored", 1, true) then ignored = ignored + 1 end
+	end
+	check(ignored == 3, "the three whispers logged as ignored (" .. ignored .. ")")
 end
 
 print(("%d checks, %d failures"):format(checks, failures))

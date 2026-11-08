@@ -66,6 +66,10 @@ else is sent. When it differs, one guild member answers and the two
 compare per-bucket digests by whisper, then exchange only the records that
 differ. Details and measured message counts: [docs/design.md](docs/design.md).
 
+Everything stays within the guild: messages go on the guild channel, and
+whispers count only from players heard there. Another guild using the
+addon keeps its own, separate list.
+
 ## Development
 
 - Tests (Lua 5.1): `lua-5.1 tests/run.lua` loads the pure modules

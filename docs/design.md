@@ -89,6 +89,11 @@ increasing). Higher rev wins, so merging is order-independent.
 - **Own change**: the owner broadcasts its record on GUILD (`R`),
   coalesced over 2 s. Everyone online stores it. On GUILD a record is
   accepted only from its owner.
+- **Guild only**: the server delivers the GUILD channel to guild members
+  only, and whispers are accepted only from players heard on it this
+  session. Every sync starts there (the newcomer's `H`, the peer's `A`),
+  so a player outside the guild who whispers `B`, `N` or `R` gets no
+  records out and puts none in.
 - **Login**: after 3-6 s the player broadcasts `H` with one digest of
   its whole table (hash over `owner=rev`). Peers with the same digest stay
   silent: **an in-sync login costs one message**.
