@@ -127,11 +127,10 @@ def install(addons, tree, label):
     if wrong:
         fail(f"installed copy differs from {label} in: " + ", ".join(wrong))
     print(f"installed {label}: GuildProf {version(tree)}, {len(tree)} files, identical to the source")
-    files_changed = set(before) - EXTRA != set(tree) or before.get(TOC) != tree.get(TOC)
+    # Files added to the TOC of an installed addon load on /reload; only a
+    # folder the client has never seen gets a full restart.
     if not before:
         print("next: quit and restart the game (new addon)")
-    elif files_changed:
-        print("next: quit and restart the game (files or the TOC changed)")
     elif before == tree:
         print("next: nothing, the same files were already installed")
     else:
