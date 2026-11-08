@@ -107,6 +107,9 @@ function Roster.Prune()
 	end
 	for _, owner in ipairs(gone) do
 		Store.Remove(owner)
+		if ns.Version then
+			ns.Version.Forget(owner)
+		end
 	end
 	return #gone, "removed " .. table.concat(gone, ", ")
 end

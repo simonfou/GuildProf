@@ -3,7 +3,7 @@
 -- environment, on a simulated guild channel with a virtual clock.
 
 local ROOT = "GuildProf/Core/"
-local MODULES = { "Codec", "Store", "Roster", "Comm", "Sync", "Index" }
+local MODULES = { "Codec", "Store", "Roster", "Version", "Comm", "Sync", "Index" }
 
 -- Generated recipe data, loaded once and shared by every simulated player.
 local dataNs = {}
@@ -121,6 +121,7 @@ local function newNode(name)
 		setfenv(chunk, env)
 		chunk("GuildProf", ns)
 	end
+	ns.Version.mine = "1.0.0"
 	node.ns = ns
 	nodes[name] = node
 	return node
@@ -131,6 +132,7 @@ local function login(node)
 	node.ns.me = node.guess or node.name
 	node.ns.baseName = node.name:match("^%S+")
 	node.ns.Store.Bind(node.db, node.guild)
+	node.ns.Version.Bind(node.db, node.guild)
 	node.ns.Sync.heard = {} -- a new session
 	after(1, function() node.ns.Sync.Hello() end)
 end
@@ -231,15 +233,15 @@ check(converged == 20, "staggered logins: all 20 hold the same table (" .. conve
 check(#nodes[names[1]].ns.Store.Owners() == 20, "staggered logins: 20 records")
 print(("staggered logins: GUILD %d, WHISPER %d, %d bytes"):format(traffic.GUILD, traffic.WHISPER, traffic.bytes))
 
--- 2. Everyone in sync: a login costs one GUILD message and nothing else.
+-- 2. Everyone in sync: a login costs two GUILD messages (V and H) and nothing else.
 reset()
 local n5 = nodes[names[5]]
 logout(n5)
 runUntil(clock + 10)
 login(n5)
 runUntil(clock + 60)
-check(traffic.GUILD == 1 and traffic.WHISPER == 0,
-	("in-sync login costs 1 message (GUILD %d, WHISPER %d)"):format(traffic.GUILD, traffic.WHISPER))
+check(traffic.GUILD == 2 and traffic.WHISPER == 0,
+	("in-sync login costs 2 messages (GUILD %d, WHISPER %d)"):format(traffic.GUILD, traffic.WHISPER))
 
 -- 3. Offline changes: three players log out, others change while they are
 -- away, then they come back and catch up through one peer each.
@@ -493,6 +495,70 @@ do
 		if l:find("not heard on the guild channel: ignored", 1, true) then ignored = ignored + 1 end
 	end
 	check(ignored == 3, "the three whispers logged as ignored (" .. ignored .. ")")
+end
+
+-- 10. Versions: a newer copy logs in and every online member is told once;
+-- an older copy that logs in later hears of it from one player; a copy
+-- without announcements shows as older.
+do
+	local lines, notified = {}, {}
+	for _, node in pairs(nodes) do
+		node.ns.Log = function(t) lines[#lines + 1] = node.name .. ": " .. t end
+		node.ns.OnNewerVersion = function() notified[node.name] = (notified[node.name] or 0) + 1 end
+	end
+	local function count(pattern)
+		local n = 0
+		for _, l in ipairs(lines) do
+			if l:find(pattern, 1, true) then n = n + 1 end
+		end
+		return n
+	end
+	local newer, newer2 = nodes[names[11]], nodes[names[12]]
+	local older, legacy, obs = nodes[names[13]], nodes[names[14]], nodes[names[20]]
+	for _, n in ipairs({ newer, newer2, older, legacy }) do logout(n) end
+	runUntil(clock + 5)
+	newer.ns.Version.mine, newer2.ns.Version.mine = "1.1.0", "1.1.0"
+	older.ns.Version.mine, legacy.ns.Version.mine = "0.9.0", nil
+
+	reset()
+	login(newer)
+	runUntil(clock + 30)
+	local told, members = 0, 0
+	for _, n in pairs(nodes) do
+		if n.online and n.guild == "TestGuild" and n ~= newer then
+			members = members + 1
+			if n.ns.Version.newest == "1.1.0" and notified[n.name] == 1 then told = told + 1 end
+		end
+	end
+	check(members > 0 and told == members, ("newer copy: %d/%d online members told once"):format(told, members))
+	check(not notified["Outsider Stranger"], "another guild is not told")
+	check(obs.ns.Version.Of(newer.name) == "1.1.0", "the newer copy's version is known")
+	check(obs.ns.Version.Outdated(obs.name) == "1.0.0", "the player's own copy counts as older")
+	check(traffic.GUILD == 2, "a newer copy's login costs no extra message (GUILD " .. traffic.GUILD .. ")")
+
+	login(newer2)
+	runUntil(clock + 30)
+	local again = 0
+	for _, c in pairs(notified) do
+		if c > 1 then again = again + 1 end
+	end
+	check(again == 0, "a second copy of the same version tells nobody again (" .. again .. ")")
+
+	reset()
+	login(older)
+	runUntil(clock + 30)
+	check(older.ns.Version.newest == "1.1.0" and notified[older.name] == 1, "an older copy hears of the newer version at login")
+	local replies = count("V sent: older copy at " .. older.name)
+	check(replies >= 1 and replies <= 2, "one answer to the older copy, rarely two (" .. replies .. ")")
+	check(count("V for " .. older.name .. " left to another player") >= 1, "the other newest copy stayed silent")
+
+	login(legacy)
+	runUntil(clock + 30)
+	check(obs.ns.Version.Of(legacy.name) == "" and obs.ns.Version.Outdated(legacy.name) == "",
+		"a copy without announcements shows as older")
+	check(count("V sent: older copy at " .. legacy.name) == 0, "a copy without announcements gets no answer")
+	check(obs.db.guilds.TestGuild.versions[legacy.name] == "", "versions kept in the SavedVariables")
+	check(obs.ns.Version.Outdated(newer.name) == nil, "the newest copy is not older")
 end
 
 print(("%d checks, %d failures"):format(checks, failures))

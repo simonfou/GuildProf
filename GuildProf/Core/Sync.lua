@@ -2,6 +2,8 @@ local _, ns = ...
 
 -- Sync protocol. Design and message costs: docs/design.md, "Sync".
 --
+--   V<version>                     GUILD    the sender's addon version, right before its H;
+--                                           also one answer to an older copy's V
 --   H<digest>                      GUILD    newcomer: hash of its whole table
 --   A<newcomer>\t<digest>          GUILD    one peer whose hash differs: "sync with me"
 --   B<d0>,<d1>,...,<d15>           WHISPER  newcomer -> peer: per-bucket hashes
@@ -14,7 +16,8 @@ local _, ns = ...
 -- session: the server delivers that channel to guild members only, and
 -- every sync starts there (the newcomer's H, the peer's A).
 --
--- In sync (the common case) a login costs one GUILD message.
+-- In sync (the common case) a login costs two GUILD messages (V and H).
+-- Copies without V ignore it: unknown message types are dropped.
 
 local Codec, Store, Comm = ns.Codec, ns.Store, ns.Comm
 local Sync = {}
@@ -27,6 +30,8 @@ local ACK_MEMORY = 30        -- seconds an A for a newcomer suppresses others
 local PUBLISH_DELAY = 2      -- coalesce several profession scans
 
 local SETTLE = 3             -- seconds for the last records of a sync to arrive
+local VREPLY_MIN = 100       -- hundredths of a second before answering an older copy's V
+local VREPLY_MAX = 500
 
 local waiting      -- time the player's H went out, while an A is awaited
 local syncPeer
@@ -38,6 +43,7 @@ local retried
 local plannedAck = {} -- newcomer -> true while an A to it is scheduled
 local heardAck = {}   -- newcomer -> time an A for it was heard
 local publishPlanned
+local lastAnnounce = -1 -- time a V at least as new as this copy's was last heard or sent
 
 -- Senders heard on the guild channel this session: guild members.
 Sync.heard = {}
@@ -71,6 +77,10 @@ function Sync.Hello()
 	waiting, syncPeer = now(), nil
 	Sync.lastHello = now()
 	log("H sent", Store.Digest(), #Store.Owners() .. " records")
+	local Version = ns.Version
+	if Version and Version.mine then
+		Comm.Send("GUILD", "V" .. Version.mine)
+	end
 	Comm.Send("GUILD", "H" .. Store.Digest())
 	local sent = waiting
 	C_Timer.After(HELLO_WINDOW, function()
@@ -160,8 +170,44 @@ ns.OnOwnEcho = Sync.OnOwnEcho
 
 local handlers = {}
 
+handlers.V = function(body, channel, sender)
+	local Version = ns.Version
+	if channel ~= "GUILD" or not Version then
+		return
+	end
+	local c = Version.OnV(sender, body)
+	if c == nil then
+		return
+	end
+	if c >= 0 then
+		lastAnnounce = now()
+		return
+	end
+	-- An older copy announced itself: one player on the newest version
+	-- answers, so that copy learns a newer one exists.
+	if Version.newest then
+		return
+	end
+	local heard = now()
+	C_Timer.After(ns.random(VREPLY_MIN, VREPLY_MAX) / 100, function()
+		if lastAnnounce >= heard then
+			log("V for", sender, "left to another player")
+			return
+		end
+		lastAnnounce = now()
+		log("V sent: older copy at", sender, body)
+		Comm.Send("GUILD", "V" .. Version.mine)
+	end)
+end
+
 handlers.H = function(body, channel, sender)
-	if channel ~= "GUILD" or plannedAck[sender] then
+	if channel ~= "GUILD" then
+		return
+	end
+	if ns.Version then
+		ns.Version.OnHello(sender)
+	end
+	if plannedAck[sender] then
 		return
 	end
 	if body == Store.Digest() then

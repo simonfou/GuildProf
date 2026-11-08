@@ -9,21 +9,32 @@ leaves the guild.
 
 ## Status
 
-Early development, in use on WoW Forever (1.60.x), the only target
-client. No tagged release yet: install from the `main` branch.
+In use on WoW Forever (1.60.x), the only target client. Releases:
+[github.com/simonfou/GuildProf/releases](https://github.com/simonfou/GuildProf/releases).
 
 ## Install
 
-1. On GitHub, **Code > Download ZIP**, then extract it.
-2. Inside the extracted `GuildProf-main` folder, copy the **`GuildProf`**
-   folder (the one that holds `GuildProf.toc`) into
-   `World of Warcraft/_forever_/Interface/AddOns/`. The result must be
-   `.../AddOns/GuildProf/GuildProf.toc`, not `.../AddOns/GuildProf-main/`.
-3. Restart the game completely (a `/reload` does not pick up a new addon).
-   At character select, **AddOns** should list GuildProf as enabled.
+1. Download **[GuildProf.zip](https://github.com/simonfou/GuildProf/releases/latest/download/GuildProf.zip)**
+   (the latest release). GitHub's green **Code** button downloads the
+   source tree instead, with files the game does not need.
+2. In the Battle.net app, select World of Warcraft and its **Forever**
+   version, click the gear next to **Play**, then **Show in Explorer**
+   (**Show in Finder** on a Mac). Open `_forever_` if the window is not
+   already in it, then `Interface`, then `AddOns`. Create `Interface` and
+   `AddOns` if they are missing (exact spelling).
+3. Double-click `GuildProf.zip` to open it and drag the **GuildProf**
+   folder it contains into `AddOns`. The result is
+   `AddOns\GuildProf\GuildProf.toc`. Windows' **Extract All** adds a
+   second folder level (`AddOns\GuildProf\GuildProf\`), which the game
+   does not load.
+4. Quit and restart the game (a `/reload` does not pick up a new addon).
+   At character select, **AddOns** lists GuildProf.
 
-**Update**: delete the old `AddOns/GuildProf` folder, copy the new one the
-same way, then `/reload` or restart.
+**Update**: delete the old `AddOns\GuildProf` folder, then repeat steps 1,
+3 and 4. Shared data is kept in the game's `WTF` folder and survives
+updates. When a guild member runs a newer version, GuildProf says so in
+chat and at the top of its window; `/gp update` shows the download link,
+ready to copy.
 
 **Requirements**: every guild member who wants to share runs the addon.
 Forever trial accounts cannot send addon messages, so they cannot share
@@ -46,7 +57,8 @@ their data.
   for updates right away.
 - `/gp status` shows the guild, the number of records, the last scan, the
   message counters, the roster read and the last removal of departed
-  members. `/gp scan` rescans, `/gp debug` toggles debug
+  members, and the addon versions seen in the guild. `/gp update` shows
+  the download link. `/gp scan` rescans, `/gp debug` toggles debug
   output.
 
 ## Known limits
@@ -71,6 +83,11 @@ whispers count only from players heard there. Another guild using the
 addon keeps its own, separate list.
 
 ## Development
+
+A release is the committed addon at the TOC's `## Version`: bump it,
+commit, push, then `python3 -I tools/release.py --publish` builds
+`dist/GuildProf.zip` (the addon folder only), tags `v<version>` and
+creates the GitHub release. Without `--publish` it only builds the zip.
 
 - Tests (Lua 5.1): `lua-5.1 tests/run.lua` loads the pure modules
   (`GuildProf/Core/`) and simulates a guild of 22 players on a virtual

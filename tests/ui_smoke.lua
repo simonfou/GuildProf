@@ -59,6 +59,7 @@ function Widget:SetChecked(v) self._checked = v end
 function Widget:GetChecked() return self._checked end
 function Widget:CreateTexture() return newWidget("Texture") end
 function Widget:CreateFontString() return newWidget("FontString") end
+function Widget:GetFrameLevel() return 1 end
 function Widget:Click(button) local f = self._scripts.OnClick; if f then f(self, button or "LeftButton") end end
 
 CreateFrame = function(kind, name, parent, template)
@@ -143,6 +144,16 @@ hooksecurefunc = function(t, name, fn)
 	local old = t[name]
 	t[name] = function(...) local r = old(...) fn(...) return r end
 end
+
+local tocVersion
+for line in io.lines("GuildProf/GuildProf.toc") do
+	tocVersion = tocVersion or line:match("^## Version: (%S+)")
+end
+C_AddOns = {
+	GetAddOnMetadata = function(name, field)
+		if name == "GuildProf" and field == "Version" then return tocVersion end
+	end,
+}
 
 ---------------------------------------------------------------- load
 
@@ -313,6 +324,50 @@ ok, err = pcall(function()
 	check(found, "/gp status shows the last prune")
 end)
 check(ok, "prune: " .. tostring(err))
+
+-- Versions: a member's newer V puts an update row at the top of the list;
+-- clicking it shows the download link, selected and read-only.
+ok, err = pcall(function()
+	check(ns.Version.mine == tocVersion, "version read from the TOC (" .. tostring(ns.Version.mine) .. ")")
+	local realPrint, out = print, {}
+	print = function(...) out[#out + 1] = table.concat({ ... }, " ") end
+	ns.Sync.OnBody("V9.0.0", "GUILD", "Bob Jones")
+	ns.Sync.OnBody("V9.0.0", "GUILD", "Bob Jones")
+	runTimers(clock + 1)
+	print = realPrint
+	check(ns.Version.newest == "9.0.0", "newer version noted")
+	check(#out == 1 and out[1]:find("/gp update", 1, true), "said once in chat: " .. tostring(out[1]))
+	local update
+	for _, r in ipairs(rows()) do
+		if r:IsShown() and r.entry.kind == "update" then update = r end
+	end
+	check(update ~= nil and update.entry == rows()[1].entry, "update row first in the list")
+	update._scripts.OnEnter(update)
+	update:Click("LeftButton")
+	local edit
+	for _, w in ipairs(created) do
+		if w._kind == "EditBox" and w._text == ns.Version.URL then edit = w end
+	end
+	check(edit ~= nil, "link box shows the download link")
+	edit:SetText("typed over")
+	edit._scripts.OnTextChanged(edit)
+	check(edit:GetText() == ns.Version.URL, "the link cannot be edited away")
+	for _, r in ipairs(rows()) do
+		if r:IsShown() and r.entry.kind == "member" then r._scripts.OnEnter(r) end
+	end
+	out = {}
+	print = function(...) out[#out + 1] = table.concat({ ... }, " ") end
+	SlashCmdList.GUILDPROF("update")
+	SlashCmdList.GUILDPROF("status")
+	print = realPrint
+	local line
+	for _, l in ipairs(out) do
+		if l:find("version:", 1, true) then line = l end
+	end
+	check(line and line:find("older: Alice Smith (" .. tocVersion .. ")", 1, true), "status: " .. tostring(line))
+	check(GuildProfFrame.members:GetText():find("1 on an older version", 1, true), "older count under the professions")
+end)
+check(ok, "versions: " .. tostring(err))
 
 print(("ui smoke: %d failures"):format(failures))
 os.exit(failures == 0 and 0 or 1)

@@ -8,6 +8,8 @@ local _, ns = ...
 -- shows its reagents and who can craft it; clicking a crafter whispers them;
 -- shift-click links the item in chat.
 -- The window also opens from a tab on the guild frame, over its content.
+-- When a guild member runs a newer version, the list starts with a row that
+-- opens the download link, selected for copying.
 
 local Index = ns.Index
 local UI = {}
@@ -38,6 +40,15 @@ local L = {
 	CLEAR_HINT = "Click to show every recipe",
 	PROF_COUNTS = "%s members, %s recipes",
 	GUILD_TAB = "GuildProf: who crafts what",
+	UPDATE_ROW = "Version %s is out: click for the link",
+	UPDATE_HINT = "Installed: %s. Click to show the download link.",
+	LINK_TITLE = "GuildProf download",
+	LINK_HINT = "Ctrl+C copies the link; paste it in a web browser.",
+	LINK_STEPS = "Then replace the AddOns\\GuildProf folder and restart the game.",
+	MEMBER_VERSION = "Addon %s",
+	MEMBER_OLD = "Older addon: %s",
+	OLD_VERSION = "before version announcements",
+	OLDER_COUNT = "%s on an older version",
 }
 UI.L = L
 
@@ -74,6 +85,7 @@ local filterOwner     -- show only this member's recipes
 local folded = {}     -- skillLine -> true when its member section is folded
 local docked          -- true while the window sits on the guild frame
 local guildTab
+local linkBox
 
 ---------------------------------------------------------------- helpers
 
@@ -363,6 +375,10 @@ end
 -- of: header, member, note, recipe.
 local function entries()
 	local list = {}
+	local Version = ns.Version
+	if Version and Version.newest then
+		list[#list + 1] = { kind = "update", text = L.UPDATE_ROW:format(Version.newest) }
+	end
 	if not selectedProf then
 		return list
 	end
@@ -396,7 +412,19 @@ local function rowEnter(self)
 		GameTooltip:SetText(e.m.owner)
 		GameTooltip:AddLine(L.MEMBER_SKILL:format(e.m.level, e.m.max), 1, 1, 1)
 		GameTooltip:AddLine(L.MEMBER_RECIPES:format(e.m.count), 1, 1, 1)
+		local Version = ns.Version
+		local v = Version and Version.Of(e.m.owner)
+		if v and Version.Outdated(e.m.owner) then
+			GameTooltip:AddLine(L.MEMBER_OLD:format(v == Version.NONE and L.OLD_VERSION or v), 1, 0.6, 0.2)
+		elseif v then
+			GameTooltip:AddLine(L.MEMBER_VERSION:format(v), 0.6, 0.6, 0.6)
+		end
 		GameTooltip:AddLine(L.MEMBER_HINT, 0.6, 0.6, 0.6, true)
+		GameTooltip:Show()
+	elseif e.kind == "update" then
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(e.text)
+		GameTooltip:AddLine(L.UPDATE_HINT:format(tostring(ns.Version.mine)), 1, 1, 1, true)
 		GameTooltip:Show()
 	elseif e.kind == "header" and (e.key == "members" or filterOwner) then
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -420,6 +448,9 @@ local function rowClick(self, button)
 			return
 		end
 		filterOwner = filterOwner ~= e.m.owner and e.m.owner or nil
+	elseif e.kind == "update" then
+		UI.ShowLink()
+		return
 	elseif e.kind == "header" then
 		if e.key == "members" then
 			folded[selectedProf] = not folded[selectedProf] or nil
@@ -479,6 +510,10 @@ local function refreshList()
 			setRowText(r, 4, e.text)
 			r.text:SetFontObject("GameFontNormal")
 			r.text:SetTextColor(1, 0.82, 0)
+		elseif e.kind == "update" then
+			setRowText(r, 4, e.text)
+			r.text:SetFontObject("GameFontNormal")
+			r.text:SetTextColor(1, 0.6, 0.2)
 		elseif e.kind == "note" then
 			setRowText(r, 16, e.text)
 			r.text:SetFontObject("GameFontNormalSmall")
@@ -644,7 +679,18 @@ function UI.Refresh()
 		selectedProf = selectedProf or ns.CRAFTING[1]
 	end
 	refreshProfessions()
-	frame.members:SetText(L.MEMBERS:format(#ns.Store.Owners()))
+	local text = L.MEMBERS:format(#ns.Store.Owners())
+	local older = 0
+	for _, owner in ipairs(ns.Store.Owners()) do
+		if ns.Version and ns.Version.Outdated(owner) then
+			older = older + 1
+		end
+	end
+	if older > 0 then
+		text = text .. "\n|cffff9933" .. L.OLDER_COUNT:format(older) .. "|r"
+	end
+	frame.members:SetText(text)
+	frame.members:SetJustifyH("LEFT")
 	refreshList()
 	refreshDetail()
 end
@@ -679,6 +725,51 @@ function UI.Toggle()
 		return
 	end
 	frame:SetShown(not frame:IsShown())
+end
+
+-- A box over the window with the download link selected: the game cannot
+-- open a browser, so the player copies the link out.
+function UI.ShowLink()
+	if not frame then
+		build()
+	end
+	if not frame:IsShown() then
+		frame:Show()
+	end
+	local url = ns.Version.URL
+	if not linkBox then
+		linkBox = CreateFrame("Frame", nil, frame, "BasicFrameTemplateWithInset")
+		linkBox:SetSize(380, 120)
+		linkBox:SetPoint("CENTER")
+		linkBox:SetFrameLevel(frame:GetFrameLevel() + 20)
+		linkBox:EnableMouse(true)
+		linkBox.TitleText:SetText(L.LINK_TITLE)
+		local hint = linkBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		hint:SetPoint("TOP", 0, -32)
+		hint:SetText(L.LINK_HINT)
+		local edit = CreateFrame("EditBox", nil, linkBox, "InputBoxTemplate")
+		edit:SetSize(340, 20)
+		edit:SetPoint("TOP", hint, "BOTTOM", 0, -8)
+		edit:SetAutoFocus(false)
+		-- Read-only: any typing puts the link back.
+		edit:SetScript("OnTextChanged", function(self)
+			if self:GetText() ~= url then
+				self:SetText(url)
+				self:HighlightText()
+			end
+		end)
+		edit:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+		edit:SetScript("OnEscapePressed", function() linkBox:Hide() end)
+		edit:SetScript("OnEnterPressed", function() linkBox:Hide() end)
+		local steps = linkBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+		steps:SetPoint("TOP", edit, "BOTTOM", 0, -8)
+		steps:SetText(L.LINK_STEPS)
+		linkBox.edit = edit
+	end
+	linkBox.edit:SetText(url)
+	linkBox:Show()
+	linkBox.edit:SetFocus()
+	linkBox.edit:HighlightText()
 end
 
 ---------------------------------------------------------------- guild frame tab

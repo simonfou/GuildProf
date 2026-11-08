@@ -3,7 +3,7 @@ local addonName, ns = ...
 -- Addon shell: SavedVariables, events, guild binding, roster, own name,
 -- slash commands. Loaded last.
 
-local Store, Sync, Comm, Roster = ns.Store, ns.Sync, ns.Comm, ns.Roster
+local Store, Sync, Comm, Roster, Version = ns.Store, ns.Sync, ns.Comm, ns.Roster, ns.Version
 
 function ns.Print(...)
 	print("|cff33ccffGuildProf|r:", ...)
@@ -42,6 +42,27 @@ end
 function ns.OnOwnName(sender)
 	ns.Debug("own name is", sender)
 	ns.char.me = sender
+end
+
+---------------------------------------------------------------- version
+
+-- The TOC's Version field, when the client returns one that parses.
+local function tocVersion()
+	local get = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
+	if not get then
+		return nil
+	end
+	local ok, v = pcall(get, addonName, "Version")
+	if ok and Version.Parse(v) then
+		return v
+	end
+end
+
+-- A guild member runs a newer version: said once per version and session.
+function ns.OnNewerVersion(v)
+	ns.Print(("|cffff9933version %s is out|r (installed: %s). |cffffffff/gp update|r shows the download link.")
+		:format(v, tostring(Version.mine)))
+	ns.UI.RefreshSoon()
 end
 
 function ns.OnRecordChanged(owner)
@@ -120,6 +141,7 @@ local function bindGuild()
 	boundKey = key
 	ns.solo = key == ""
 	Store.Bind(ns.db, key)
+	Version.Bind(ns.db, key)
 	if own then
 		Store.Put(ns.me, own.rev, own.data)
 	end
@@ -155,6 +177,7 @@ handlers.ADDON_LOADED = function(name)
 	-- Diagnostics describe this session only.
 	ns.db.diag = {}
 	t0 = GetTime()
+	Version.mine = tocVersion()
 end
 
 handlers.PLAYER_LOGIN = function()
@@ -230,11 +253,22 @@ SlashCmdList.GUILDPROF = function(msg)
 		end
 		ns.Print("records:", #Store.Owners(), "| digest:", Store.IsBound() and Store.Digest() or "-")
 		ns.Print("roster:", tostring(ns.db.diag and ns.db.diag.roster), "| prune:", tostring(lastPrune))
+		local older = {}
+		for _, owner in ipairs(Store.Owners()) do
+			local v = Version.Outdated(owner)
+			if v then
+				older[#older + 1] = owner .. " (" .. (v == Version.NONE and "old" or v) .. ")"
+			end
+		end
+		ns.Print("version:", tostring(Version.mine), "| newer in the guild:", tostring(Version.newest),
+			"| older:", #older > 0 and table.concat(older, ", ") or "-")
 		ns.Print("sent:", Comm.stats.sent, "received:", Comm.stats.received, "dropped:",
 			Comm.stats.dropped, "queued:", Comm.Pending())
 		if ns.unknownEvents then
 			ns.Print("events not registered:", ns.unknownEvents)
 		end
+	elseif cmd == "update" then
+		ns.UI.ShowLink()
 	elseif cmd == "sync" then
 		ns.Scan.Basic()
 		Sync.Hello()
@@ -247,6 +281,6 @@ SlashCmdList.GUILDPROF = function(msg)
 		ns.db.debug = not ns.db.debug
 		ns.Print("debug", ns.db.debug and "on" or "off")
 	else
-		ns.Print("/gp, /gp status, /gp sync, /gp scan, /gp debug")
+		ns.Print("/gp, /gp status, /gp sync, /gp scan, /gp update, /gp debug")
 	end
 end

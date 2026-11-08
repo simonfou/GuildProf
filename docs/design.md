@@ -89,14 +89,26 @@ increasing). Higher rev wins, so merging is order-independent.
 - **Own change**: the owner broadcasts its record on GUILD (`R`),
   coalesced over 2 s. Everyone online stores it. On GUILD a record is
   accepted only from its owner.
+- **Versions**: every `H` follows a `V<x.y.z>` (the TOC's `## Version`).
+  A player who hears a newer version says so once in chat and puts an
+  update row at the top of the window, which shows the download link
+  selected for copying. When an older copy's `V` arrives, one player on
+  the newest version answers with its own `V` after 1-5 s (suppressed when
+  another answer is heard first), so the older copy learns of the update
+  at login. An `H` without a `V` just before it comes from a copy older
+  than these announcements. Versions are kept per guild in the
+  SavedVariables: member tooltips and `/gp status` name the members on an
+  older copy. Copies without `V` drop it like any unknown message type,
+  so new message types stay compatible with older copies.
 - **Guild only**: the server delivers the GUILD channel to guild members
   only, and whispers are accepted only from players heard on it this
   session. Every sync starts there (the newcomer's `H`, the peer's `A`),
   so a player outside the guild who whispers `B`, `N` or `R` gets no
   records out and puts none in.
-- **Login**: after 3-6 s the player broadcasts `H` with one digest of
-  its whole table (hash over `owner=rev`). Peers with the same digest stay
-  silent: **an in-sync login costs one message**.
+- **Login**: after 3-6 s the player broadcasts `V` with its addon version,
+  then `H` with one digest of its whole table (hash over `owner=rev`).
+  Peers with the same digest stay silent: **an in-sync login costs two
+  messages**.
 - A peer whose digest differs waits a random 0.2-1.5 s, then answers `A`
   on GUILD unless another peer already did (suppression: normally one
   answer). Only a peer whose own table is current answers: after its own
@@ -139,9 +151,9 @@ Measured headless (`tests/run.lua`, 20 players, about 500 bytes per record):
 
 | Case | GUILD | WHISPER | Bytes |
 | --- | --- | --- | --- |
-| Login, already in sync | 1 | 0 | ~20 |
-| 3 logins after 6 records changed | 16 | 47 | 8.9 KB |
-| New member, empty table | 2 | 51 | 9.6 KB |
+| Login, already in sync | 2 | 0 | ~30 |
+| 3 logins after 6 records changed | 19 | 47 | 8.9 KB |
+| New member, empty table | 3 | 51 | 9.7 KB |
 
 Known limits, accepted for now:
 
