@@ -5,6 +5,7 @@
 ## SavedVariables: GuildProfDB
 ## SavedVariablesPerCharacter: GuildProfCharDB
 ## IconTexture: Interface\Icons\Trade_BlackSmithing
+## X-Curse-Project-ID: 1791141
 
 # Pure Lua 5.1, also loaded headless by tests/run.lua.
 Core\Codec.lua

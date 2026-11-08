@@ -93,6 +93,13 @@ A release is the committed addon at the TOC's `## Version`: bump it,
 commit, push, then `python3 -I tools/release.py --publish` builds
 `dist/GuildProf.zip` (the addon folder only), tags `v<version>` and
 creates the GitHub release. Without `--publish` it only builds the zip.
+With the TOC's `## X-Curse-Project-ID` set and a CurseForge author API
+token in `~/.curseforge-token`, `--publish` then uploads the same zip to
+CurseForge for the game version whose API version is the TOC's
+`## Interface` (16001 is 1.60.1), with the commit subjects since the
+previous tag as changelog.
+`--curseforge-check` tests the token and the game version without
+uploading; `--curseforge-only` uploads an already tagged version.
 
 - Tests (Lua 5.1): `lua-5.1 tests/run.lua` loads the pure modules
   (`GuildProf/Core/`) and simulates a guild of 22 players on a virtual
