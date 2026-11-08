@@ -105,6 +105,13 @@ previous tag as changelog.
 `--curseforge-check` tests the token and the game version without
 uploading; `--curseforge-only` uploads an already tagged version.
 
+- Testing in game: `python3 -I tools/install.py dev` copies the working
+  tree's addon folder into the AddOns folder named on the first line of
+  `.addons-path` (ignored by git), `release [vX.Y.Z]` puts a released
+  version back, and `status` tells which one is installed. Each install
+  is compared file by file with its source and says whether `/reload` is
+  enough. `dev` refuses a TOC version that has no release tag: every copy
+  announces its version, and the guild would be told it is out.
 - Tests (Lua 5.1): `lua-5.1 tests/run.lua` loads the pure modules
   (`GuildProf/Core/`) and simulates a guild of 22 players on a virtual
   clock: convergence, message counts, name learning, a member leaving, a
