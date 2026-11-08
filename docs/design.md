@@ -5,24 +5,39 @@ the player's own professions and recipes, shares them with the guild over
 addon messages, and shows the whole guild's crafting in one window, offline
 members included. Target client: WoW Forever (interface 16001) only.
 
-## Window (`/gp`)
+## Window (`/gp`, or the GuildProf tab of the guild frame)
 
 Three columns:
 
 1. **Professions**: the crafting professions (Alchemy, Blacksmithing,
    Enchanting, Engineering, Leatherworking, Tailoring, Cooking, First Aid,
-   Mining for smelting), each with the number of recipes someone in the
-   guild knows. Herbalism, Skinning and Fishing also have a few crafts on
-   Forever (Incense Candle, Camp Chair, Fish Bowl): tracked in data
-   (`ns.GATHERING`), not shown yet.
-2. **Recipes** of the selected profession that at least one member knows,
-   highest skill first, with a search box (recipe or item name) and the
-   number of crafters per row. Hover: the item's tooltip (the spell's for
-   enchants). Shift-click: link in chat.
+   Mining), then, after a small gap, the gathering ones (Herbalism,
+   Skinning, Fishing; Forever gives each a few crafts too). Each shows its
+   number of members; the tooltip adds the number of known recipes.
+2. **Members, then recipes** of the selected profession:
+   - A foldable member section: every guild member with the profession,
+     best skill first, with skill and recipe count. Click a member to show
+     only their recipes (click again, or the recipes header, to clear);
+     right-click to whisper.
+   - The recipes at least one member knows, highest skill first, with a
+     search box (recipe or item name) and the number of crafters per row.
+     Hover: the item's tooltip (the spell's for enchants). Shift-click:
+     link in chat.
 3. **Detail** of the clicked recipe: icon, name, required skill, reagents
    (hover for their tooltips), and who can craft it, online first (green
    online, grey offline, white when the roster names them differently) with
-   each crafter's skill level. Click a crafter to whisper them.
+   each crafter's skill level. Click a crafter to whisper them. The list
+   shortens to the room left under the reagents.
+
+**Guild frame tab.** Forever's guild frame is Retail's `CommunitiesFrame`
+(814 x 426, side tabs Chat, Roster, Guild Benefits, Guild Info, Preferred
+Play). A `RightSideTabTemplate` tab goes under the last visible one,
+placed from a `hooksecurefunc` on `UpdateCommunitiesTabs` and shown only
+while the Guild Info tab is (a guild is selected). Clicking it lays the
+window over the guild frame at the same size (beside it when the guild
+frame is collapsed); any Blizzard tab (`SetDisplayMode`) or closing the
+guild frame hides it. Blizzard's functions are only hooked, never
+replaced. `/gp` floats the window again at 820 x 500.
 
 ## Data
 
@@ -41,8 +56,17 @@ Three columns:
   in different guilds never mix data), `GuildProfCharDB.me` (the server's
   form of this character's name).
 
-Recipes are read only while the player's own profession window shows a
-profession (`C_TradeSkillUI`, Retail API on Forever: the frame opens on a
+Recipes come from two sources, merged:
+
+- **At login and on every skill or recipe change** (`SKILL_LINES_CHANGED`,
+  `NEW_RECIPE_LEARNED`): each recipe of the player's professions in the
+  generated table is checked with `C_SpellBook.IsSpellKnown`, then
+  `IsSpellKnownOrInSpellBook`. A method is rejected for a profession when
+  it errors, finds nothing, or calls known a recipe whose required skill is
+  above the player's (impossible). The diag line compares its count with
+  the last window scan (GP10).
+- **From the profession window**, while it shows a
+  profession (`C_TradeSkillUI`, Retail API on Forever: the frame opens on a
 book page, and `TRADE_SKILL_*` fire once a profession tab is clicked);
 levels come from `GetProfessions` at any time. A scan never replaces a
 list with an empty one. Without a guild the addon keeps the player's own
@@ -63,17 +87,27 @@ Every record carries `rev` (server time when it changed, always
 increasing). Higher rev wins, so merging is order-independent.
 
 - **Own change**: the owner broadcasts its record on GUILD (`R`),
-  coalesced over 5 s. Everyone online stores it. On GUILD a record is
+  coalesced over 2 s. Everyone online stores it. On GUILD a record is
   accepted only from its owner.
-- **Login**: after 8-15 s the player broadcasts `H` with one digest of
+- **Login**: after 3-6 s the player broadcasts `H` with one digest of
   its whole table (hash over `owner=rev`). Peers with the same digest stay
   silent: **an in-sync login costs one message**.
-- A peer whose digest differs waits a random 0.5-3 s, then answers `A` on
-  GUILD unless another peer already did (suppression: normally one answer).
+- A peer whose digest differs waits a random 0.2-1.5 s, then answers `A`
+  on GUILD unless another peer already did (suppression: normally one
+  answer). Only a peer whose own table is current answers: after its own
+  sync, or after 20 s in which nobody answered its `H`. Two players who
+  logged in together with stale tables retry once after that window.
 - The newcomer whispers that peer `B`: 16 bucket digests (owners hashed into
   16 buckets). The peer whispers back `M` with the `owner=rev` entries of
   the buckets that differ only. The newcomer sends the records it has newer
   (`R`) and asks for the ones it lacks (`N`); the peer whispers them (`R`).
+  When the peer had the newcomer's **own** record stale, the newcomer
+  broadcasts it on GUILD instead, since the others likely have it stale too.
+- On demand: the **Sync now** button (and `/gp sync`) rescans the player's
+  professions and sends `H`; opening the window does the same when no sync
+  ran in the last 60 s.
+- Every protocol step is traced with its time in `GuildProfDB.diag.sync`
+  (last 80 lines).
   Whispers outside instances are not throttled by the client.
 - Transport (`Comm`): bodies split into 240-byte parts at UTF-8 boundaries,
   `id.index.count:` header, reassembled per sender; GUILD paced at 8 burst +
@@ -113,4 +147,6 @@ First `/console scriptErrors 1`, then a full game restart (new addon).
 | GP6 | With the profession window open: `/run local T=C_TradeSkillUI print("GP6",T.GetAllRecipeIDs and #T.GetAllRecipeIDs(),#T.GetFilteredRecipeIDs(),T.GetBaseProfessionInfo().professionID,T.GetChildProfessionInfo().professionID)` | two counts, base id (171...) and child id (2937...) | confirmed: child `professionID` is 0, `GetAllRecipeIDs` returns the whole profession |
 | GP7 | `/run print("GP7",GuildProfCharDB.me,UnitFullName("player"))` | the server's form of the name next to the client's | confirmed: `First Surname`, space-joined |
 | GP8 | `/gp` | the window; hover a recipe for its tooltip, click it for reagents and crafters | open |
-| GP9 | Two guild members with the addon | each sees the other's recipes | open |
+| GP9 | Two guild members with the addon | each sees the other's recipes | confirmed; sync felt slow, delays shortened since |
+| GP10 | `/reload`, then read `GuildProfDB.diag.basic` | per profession: `IsSpellKnown n, window n, both n` with matching counts | confirmed: 51/51/51, 24/24/24, 17/17/17, 1/1/1 |
+| GP11 | Open the guild frame | a GuildProf tab under the guild tabs; clicking it shows the window over the guild frame; Roster takes it back | confirmed |

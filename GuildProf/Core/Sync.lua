@@ -17,19 +17,33 @@ local Sync = {}
 ns.Sync = Sync
 
 local HELLO_WINDOW = 20      -- seconds the newcomer waits for an A
-local ACK_DELAY_MIN = 5      -- tenths of a second
-local ACK_DELAY_MAX = 30
+local ACK_DELAY_MIN = 2      -- tenths of a second
+local ACK_DELAY_MAX = 15
 local ACK_MEMORY = 30        -- seconds an A for a newcomer suppresses others
-local PUBLISH_DELAY = 5      -- coalesce several profession windows
+local PUBLISH_DELAY = 2      -- coalesce several profession scans
+
+local SETTLE = 3             -- seconds for the last records of a sync to arrive
 
 local waiting      -- time the player's H went out, while an A is awaited
 local syncPeer
+-- A player answers others only once its own table is current: after its
+-- own sync, or after a HELLO_WINDOW in which nobody answered.
+local ready = false
+local heardOtherHello -- another player's H with a different digest, while not ready
+local retried
 local plannedAck = {} -- newcomer -> true while an A to it is scheduled
 local heardAck = {}   -- newcomer -> time an A for it was heard
 local publishPlanned
 
 local function now()
 	return GetTime()
+end
+
+-- Protocol trace for diagnostics (ns.Log keeps the last lines).
+local function log(...)
+	if ns.Log then
+		ns.Log(table.concat({ ... }, " "))
+	end
 end
 
 local function sendRecord(kind, owner, target)
@@ -44,7 +58,31 @@ function Sync.Hello()
 		return
 	end
 	waiting, syncPeer = now(), nil
+	Sync.lastHello = now()
+	log("H sent", Store.Digest(), #Store.Owners() .. " records")
 	Comm.Send("GUILD", "H" .. Store.Digest())
+	local sent = waiting
+	C_Timer.After(HELLO_WINDOW, function()
+		if waiting ~= sent then
+			return -- answered, or a newer H went out
+		end
+		waiting = nil
+		ready = true
+		log("no answer: table taken as current")
+		-- Two players who logged in together with stale tables could not
+		-- answer each other: try once more now that both answer.
+		if heardOtherHello and not retried then
+			retried = true
+			C_Timer.After(ns.random(5, 30) / 10, Sync.Hello)
+		end
+	end)
+end
+
+-- A sync when none ran in the last `age` seconds (e.g. on opening the window).
+function Sync.HelloIfStale(age)
+	if not Sync.lastHello or now() - Sync.lastHello > age then
+		Sync.Hello()
+	end
 end
 
 -- Rebuilds the player's own record from the scanner's view and broadcasts it when
@@ -68,6 +106,7 @@ function Sync.SetOwn(profs)
 		publishPlanned = true
 		C_Timer.After(PUBLISH_DELAY, function()
 			publishPlanned = false
+			log("R own published")
 			sendRecord("GUILD", ns.me)
 		end)
 	end
@@ -111,7 +150,16 @@ ns.OnOwnEcho = Sync.OnOwnEcho
 local handlers = {}
 
 handlers.H = function(body, channel, sender)
-	if channel ~= "GUILD" or body == Store.Digest() or plannedAck[sender] then
+	if channel ~= "GUILD" or plannedAck[sender] then
+		return
+	end
+	if body == Store.Digest() then
+		log("H from", sender, "in sync")
+		return
+	end
+	if not ready then
+		heardOtherHello = true
+		log("H from", sender, "differs; not answering before own sync")
 		return
 	end
 	plannedAck[sender] = true
@@ -119,8 +167,10 @@ handlers.H = function(body, channel, sender)
 		plannedAck[sender] = nil
 		local heard = heardAck[sender]
 		if heard and now() - heard < ACK_MEMORY then
+			log("A for", sender, "left to another peer")
 			return
 		end
+		log("A sent for", sender)
 		Comm.Send("GUILD", "A" .. sender .. "\t" .. Store.Digest())
 	end)
 end
@@ -134,10 +184,15 @@ handlers.A = function(body, channel, sender)
 	if newcomer ~= ns.me or not waiting or syncPeer then
 		return
 	end
-	if now() - waiting > HELLO_WINDOW or digest == Store.Digest() then
+	if now() - waiting > HELLO_WINDOW then
+		return
+	end
+	if digest == Store.Digest() then
+		waiting, ready = nil, true
 		return
 	end
 	syncPeer = sender
+	log("A from", sender, "-> B sent")
 	local list = {}
 	local buckets = Store.BucketDigests()
 	for i = 0, Store.BUCKETS - 1 do
@@ -161,6 +216,7 @@ handlers.B = function(body, channel, sender)
 			parts[#parts + 1] = Codec.ToB36(i) .. ":" .. Store.BucketLine(i)
 		end
 	end
+	log("B from", sender, "-> M with", #parts, "buckets")
 	Comm.Send("WHISPER", "M" .. table.concat(parts, ";"), sender)
 end
 
@@ -169,8 +225,12 @@ handlers.M = function(body, channel, sender)
 		return
 	end
 	syncPeer, waiting = nil, nil
-	local need = {}
+	C_Timer.After(SETTLE, function()
+		ready = true
+	end)
+	local need, pushed = {}, 0
 	if body == "" then
+		log("M from", sender, "empty")
 		return
 	end
 	for chunk in (body .. ";"):gmatch("([^;]*);") do
@@ -189,12 +249,21 @@ handlers.M = function(body, channel, sender)
 				if Store.BucketOf(owner) == i then
 					local t = theirs[owner]
 					if not t or t < Store.Get(owner).rev then
-						sendRecord("WHISPER", owner, sender)
+						-- The player's own record goes to the whole guild:
+						-- if this peer had it stale, so may the others.
+						if owner == ns.me then
+							log("own record stale at", sender, "-> published")
+							sendRecord("GUILD", owner)
+						else
+							sendRecord("WHISPER", owner, sender)
+						end
+						pushed = pushed + 1
 					end
 				end
 			end
 		end
 	end
+	log("M from", sender, "-> need", #need, "push", pushed)
 	if #need > 0 then
 		Comm.Send("WHISPER", "N" .. table.concat(need, ","), sender)
 	end
@@ -204,9 +273,12 @@ handlers.N = function(body, channel, sender)
 	if channel ~= "WHISPER" then
 		return
 	end
+	local n = 0
 	for owner in (body .. ","):gmatch("([^,]+),") do
 		sendRecord("WHISPER", owner, sender)
+		n = n + 1
 	end
+	log("N from", sender, "->", n, "records")
 end
 
 handlers.R = function(body, channel, sender)
@@ -220,7 +292,10 @@ handlers.R = function(body, channel, sender)
 		return
 	end
 	if Store.Put(owner, rev, data) then
+		log("R", channel, "from", sender, "for", owner, "stored")
 		ns.OnRecordChanged(owner)
+	else
+		log("R", channel, "from", sender, "for", owner, "not newer")
 	end
 end
 

@@ -19,7 +19,7 @@ local function check(cond, msg)
 end
 
 -- Deterministic PRNG (the client's math.random cannot be seeded).
-local seed = 12345
+local seed = tonumber(os.getenv("SEED") or "") or 12345
 local function rand(lo, hi)
 	seed = (seed * 1103515245 + 12345) % 2147483648
 	return lo + seed % (hi - lo + 1)
@@ -295,7 +295,22 @@ for _, n in pairs(nodes) do
 end
 check(holders == 22 and wrong == 0, ("renamed record held by %d/22 online, %d under the guessed name"):format(holders, wrong))
 
--- 6. Index: crafters per recipe and recipes per profession.
+-- 6. Two players with stale tables log in together while nobody else is
+-- online: neither answers before its own sync, then they retry and meet.
+for _, n in pairs(nodes) do logout(n) end
+runUntil(clock + 5)
+local pa, pb = nodes[names[7]], nodes[names[8]]
+pa.online = true
+pa.ns.Sync.SetOwn(randomProfs())
+pa.online = false
+reset()
+login(pa)
+login(pb)
+runUntil(clock + 90)
+check(snapshot(pa) == snapshot(pb), "simultaneous stale logins converge after the retry")
+print(("simultaneous stale logins: GUILD %d, WHISPER %d"):format(traffic.GUILD, traffic.WHISPER))
+
+-- 7. Index: crafters per recipe and recipes per profession.
 do
 	local ns = nodes[names[20]].ns
 	local I = ns.Index

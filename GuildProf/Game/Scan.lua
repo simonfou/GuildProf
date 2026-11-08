@@ -22,6 +22,88 @@ local function ownProfs()
 	return r and Codec.DecodeProfs(r.data) or {}
 end
 
+-- Recipe IDs of one profession, from the generated table.
+local byProf
+local function recipesOf(sl)
+	if not byProf then
+		byProf = {}
+		for id, d in pairs(ns.Recipes) do
+			local l = byProf[d[1]] or {}
+			l[#l + 1] = id
+			byProf[d[1]] = l
+		end
+	end
+	return byProf[sl] or {}
+end
+
+-- Ways to ask whether a recipe spell is known without its window, in order
+-- of preference. Each is checked before its answer is used.
+local METHODS = { "IsSpellKnown", "IsSpellKnownOrInSpellBook" }
+
+-- Known recipes of one profession, read from the spellbook API against
+-- the generated recipe table. A method is rejected when it errors, finds
+-- nothing, or calls known a recipe above the player's skill (impossible).
+-- Returns ids and the method name, or nil and the reasons.
+local function spellbookRecipes(sl, level)
+	if not C_SpellBook then
+		return nil, "no C_SpellBook"
+	end
+	local reasons = {}
+	for _, name in ipairs(METHODS) do
+		local fn = C_SpellBook[name]
+		if fn then
+			local ids, impossible = {}, 0
+			local ok = pcall(function()
+				for _, id in ipairs(recipesOf(sl)) do
+					if fn(id) then
+						ids[#ids + 1] = id
+						if ns.Recipes[id][2] > level then
+							impossible = impossible + 1
+						end
+					end
+				end
+			end)
+			if not ok then
+				reasons[#reasons + 1] = name .. " error"
+			elseif impossible > 0 then
+				reasons[#reasons + 1] = name .. " " .. impossible .. " above skill"
+			elseif #ids == 0 then
+				reasons[#reasons + 1] = name .. " none"
+			else
+				return ids, name
+			end
+		end
+	end
+	return nil, table.concat(reasons, ", ")
+end
+
+-- Merges the spellbook's answer into a profession entry and describes the
+-- comparison with the last window scan.
+local function addSpellbookRecipes(p, sl)
+	local sb, how = spellbookRecipes(sl, p.level or 0)
+	if not sb then
+		return "spellbook: " .. how
+	end
+	local window = p.ids and Codec.DecodeIDs(p.ids) or {}
+	local set, both = {}, 0
+	for _, id in ipairs(sb) do
+		set[id] = true
+	end
+	local merged = {}
+	for _, id in ipairs(sb) do
+		merged[#merged + 1] = id
+	end
+	for _, id in ipairs(window) do
+		if set[id] then
+			both = both + 1
+		else
+			merged[#merged + 1] = id
+		end
+	end
+	p.ids = Codec.EncodeIDs(merged)
+	return ("%s %d, window %d, both %d"):format(how, #sb, #window, both)
+end
+
 function Scan.Basic()
 	if not GetProfessions then
 		return diag("basic", "no GetProfessions")
@@ -36,14 +118,18 @@ function Scan.Basic()
 		local index = t[i]
 		if index then
 			local name, _, rank, maxRank, _, _, skillLine = GetProfessionInfo(index)
-			notes[#notes + 1] = tostring(name) .. "=" .. tostring(skillLine) .. ":" .. tostring(rank)
+			local note = tostring(name) .. "=" .. tostring(skillLine) .. ":" .. tostring(rank)
 			if skillLine and ns.IsTracked(skillLine) then
 				seen[skillLine] = true
 				count = count + 1
 				local p = profs[skillLine] or {}
 				p.level, p.max = rank or 0, maxRank or 0
+				if #recipesOf(skillLine) > 0 then
+					note = note .. " [" .. addSpellbookRecipes(p, skillLine) .. "]"
+				end
 				profs[skillLine] = p
 			end
+			notes[#notes + 1] = note
 		end
 	end
 	-- Forget unlearned professions, but never on an empty answer: the

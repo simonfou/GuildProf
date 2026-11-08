@@ -4,7 +4,7 @@ local _, ns = ...
 -- its digest changes.
 --   Index.Crafters(recipeID)  -> sorted array of owners
 --   Index.Recipes(skillLine)  -> array of recipe IDs someone in the guild knows
---   Index.Members(skillLine)  -> array of { owner, level, max }
+--   Index.Members(skillLine)  -> array of { owner, level, max, count }, best first
 
 local Codec, Store = ns.Codec, ns.Store
 local Index = {}
@@ -19,10 +19,11 @@ local function build()
 	for _, owner in ipairs(Store.Owners()) do
 		local profs = Codec.DecodeProfs(Store.Get(owner).data) or {}
 		for sl, p in pairs(profs) do
+			local ids = p.ids and Codec.DecodeIDs(p.ids) or {}
 			local m = members[sl] or {}
-			m[#m + 1] = { owner = owner, level = p.level or 0, max = p.max or 0 }
+			m[#m + 1] = { owner = owner, level = p.level or 0, max = p.max or 0, count = #ids }
 			members[sl] = m
-			for _, id in ipairs(p.ids and Codec.DecodeIDs(p.ids) or {}) do
+			for _, id in ipairs(ids) do
 				local list = byRecipe[id]
 				if not list then
 					list = {}

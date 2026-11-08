@@ -17,6 +17,23 @@ function ns.Debug(...)
 	end
 end
 
+-- Last protocol lines, in GuildProfDB.diag.sync: "<seconds since load> <line>".
+local LOG_LINES = 80
+local t0
+function ns.Log(text)
+	local diag = ns.db and ns.db.diag
+	if not diag then
+		return
+	end
+	diag.sync = diag.sync or {}
+	local list = diag.sync
+	list[#list + 1] = ("%6.1f %s"):format(GetTime() - (t0 or 0), text)
+	if #list > LOG_LINES then
+		table.remove(list, 1)
+	end
+	ns.Debug(text)
+end
+
 function ns.random(lo, hi)
 	return math.random(lo, hi)
 end
@@ -99,7 +116,7 @@ local function bindGuild()
 	ns.Debug("guild", key == "" and "(none)" or key, #Store.Owners(), "records")
 	C_Timer.After(2, ns.Scan.Basic)
 	if not ns.solo then
-		C_Timer.After(ns.random(80, 150) / 10, Sync.Hello)
+		C_Timer.After(ns.random(30, 60) / 10, Sync.Hello)
 	end
 	ns.UI.RefreshSoon()
 end
@@ -110,6 +127,11 @@ local frame = CreateFrame("Frame")
 local handlers = {}
 
 handlers.ADDON_LOADED = function(name)
+	-- The guild frame loads on demand.
+	if name == "Blizzard_Communities" then
+		ns.UI.SetupGuildTab()
+		return
+	end
 	if name ~= addonName then
 		return
 	end
@@ -119,6 +141,7 @@ handlers.ADDON_LOADED = function(name)
 	ns.db.schema = ns.db.schema or 2
 	-- Diagnostics describe this session only.
 	ns.db.diag = {}
+	t0 = GetTime()
 end
 
 handlers.PLAYER_LOGIN = function()
@@ -133,6 +156,7 @@ handlers.PLAYER_LOGIN = function()
 	C_ChatInfo.RegisterAddonMessagePrefix(Comm.PREFIX)
 	ns.RequestRoster()
 	bindGuild()
+	ns.UI.SetupGuildTab()
 end
 
 handlers.PLAYER_GUILD_UPDATE = bindGuild
@@ -159,6 +183,9 @@ handlers.SKILL_LINES_CHANGED = function()
 		ns.Scan.Basic()
 	end)
 end
+
+-- A recipe learned from a trainer or a recipe item.
+handlers.NEW_RECIPE_LEARNED = function() handlers.SKILL_LINES_CHANGED() end
 
 handlers.GET_ITEM_INFO_RECEIVED = function() ns.UI.RefreshSoon() end
 
@@ -195,6 +222,7 @@ SlashCmdList.GUILDPROF = function(msg)
 			ns.Print("events not registered:", ns.unknownEvents)
 		end
 	elseif cmd == "sync" then
+		ns.Scan.Basic()
 		Sync.Hello()
 		ns.Print("sync requested")
 	elseif cmd == "scan" then

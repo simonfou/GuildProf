@@ -99,6 +99,9 @@ local function pump()
 			else
 				Comm.stats.dropped = Comm.stats.dropped + 1
 				ns.Debug("send dropped", kind, item.target or "", code)
+				if ns.Log then
+					ns.Log("send dropped " .. kind .. " " .. (item.target or "") .. " code " .. tostring(code))
+				end
 			end
 		end
 		if q[1] then
