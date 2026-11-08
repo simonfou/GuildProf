@@ -194,3 +194,4 @@ First `/console scriptErrors 1`, then a full game restart (new addon).
 | GP9 | Two guild members with the addon | each sees the other's recipes | confirmed; sync felt slow, delays shortened since |
 | GP10 | `/reload`, then read `GuildProfDB.diag.basic` | per profession: `IsSpellKnown n, window n, both n` with matching counts | confirmed: 51/51/51, 24/24/24, 17/17/17, 1/1/1 |
 | GP11 | Open the guild frame | a GuildProf tab under the guild tabs; clicking it shows the window over the guild frame; Roster takes it back | confirmed |
+| GP12 | Two members on different versions; the newer one does `/reload` | the older one's chat says `version x.y.z is out`; the newer one's SavedVariables list the older one's version under `versions` | confirmed with 1.1.1 and 1.1.0 |
