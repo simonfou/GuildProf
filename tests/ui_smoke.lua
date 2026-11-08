@@ -60,6 +60,7 @@ function Widget:GetChecked() return self._checked end
 function Widget:CreateTexture() return newWidget("Texture") end
 function Widget:CreateFontString() return newWidget("FontString") end
 function Widget:GetFrameLevel() return 1 end
+function Widget:SetFontObject(f) self._font = f end
 function Widget:Click(button) local f = self._scripts.OnClick; if f then f(self, button or "LeftButton") end end
 
 CreateFrame = function(kind, name, parent, template)
@@ -280,6 +281,71 @@ ok, err = pcall(function()
 	check(members == 0, "folded section hides members")
 end)
 check(ok, "rows: " .. tostring(err))
+
+-- Recipe categories: in the profession window's order, foldable, and
+-- unfolded while a search is set.
+ok, err = pcall(function()
+	local C, cats = ns.Codec, ns.RecipeCategories
+	local camping, bags = cats[2591][3], cats[2578][3]
+	ns.Store.Put("Dana Bags", 1800000700, C.EncodeProfs({
+		[197] = { level = 100, max = 150, ids = C.EncodeIDs({ camping, bags }) },
+	}))
+	for _, r in ipairs(rows()) do
+		if r:IsShown() and r.entry.kind == "header" and r.entry.key == "recipes" then r:Click("LeftButton") end
+	end
+	local function shown()
+		local out = {}
+		for _, r in ipairs(rows()) do
+			if r:IsShown() then out[#out + 1] = r.entry end
+		end
+		return out
+	end
+	local names, under = {}, {}
+	local current
+	for _, e in ipairs(shown()) do
+		if e.kind == "category" then
+			current = e.text:sub(3)
+			names[#names + 1] = current
+		elseif e.kind == "recipe" then
+			under[e.id] = current
+		end
+	end
+	check(table.concat(names, ",") == "Camping,Reagents,Bags", "categories in window order: " .. table.concat(names, ","))
+	for _, r in ipairs(rows()) do
+		if r:IsShown() and r.entry.kind == "category" then
+			check(r.text._font == "GameFontNormal" and r.band:IsShown(), "category header: normal font and band")
+		elseif r:IsShown() and r.entry.kind == "recipe" then
+			check(not r.band:IsShown(), "no band behind a recipe row")
+		end
+	end
+	check(under[camping] == "Camping" and under[bags] == "Bags" and under[2963] == "Reagents", "recipes under their category")
+	local function count(id)
+		local n = 0
+		for _, e in ipairs(shown()) do
+			if e.kind == "recipe" and e.id == id then n = n + 1 end
+		end
+		return n
+	end
+	for _, r in ipairs(rows()) do
+		if r:IsShown() and r.entry.kind == "category" and r.entry.key == 2576 then
+			r._scripts.OnEnter(r)
+			r:Click("LeftButton")
+			break
+		end
+	end
+	check(count(2963) == 0 and count(bags) == 1, "a folded category hides only its recipes")
+	local searchBox
+	for _, w in ipairs(created) do
+		if rawget(w, "Instructions") then searchBox = w end
+	end
+	searchBox:SetText("Spell")
+	ns.UI.Refresh()
+	check(count(2963) == 1, "a search shows recipes of folded categories")
+	searchBox:SetText("")
+	ns.UI.Refresh()
+	check(count(2963) == 0, "the fold returns when the search is cleared")
+end)
+check(ok, "categories: " .. tostring(err))
 
 -- Guild frame tab.
 ok, err = pcall(function()

@@ -3,16 +3,19 @@
 
 Usage: python3 -I tools/gen_recipes.py <csv_dir> <build> > GuildProf/Data/Recipes.lua
 
-<csv_dir> holds SkillLine, SkillLineAbility, SpellEffect, SpellReagents
-(https://wago.tools/db2/<Table>/csv?build=<build>). A recipe is a
-SkillLineAbility row of a profession skill line whose spell has a
-SpellReagents row.
+<csv_dir> holds SkillLine, SkillLineAbility, SpellEffect, SpellReagents,
+TradeSkillCategory (https://wago.tools/db2/<Table>/csv?build=<build>). A
+recipe is a SkillLineAbility row of a profession skill line whose spell
+has a SpellReagents row; its category is that row's TradeSkillCategoryID.
 """
 import csv
 import sys
 
 PROFESSIONS = [164, 165, 171, 182, 185, 186, 197, 202, 333, 129, 356, 393]
 CREATE_ITEM = "24"
+# Categories outside a profession's own tree (e.g. "SEASON OF DISCOVERY")
+# sort after the profession's categories.
+LOOSE = 100000
 
 
 def rows(d, table):
@@ -20,8 +23,20 @@ def rows(d, table):
         return list(csv.DictReader(f))
 
 
+def lua_str(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def category_order(cats, cid):
+    c = cats[cid]
+    order = int(c["OrderIndex"])
+    return order if c["ParentTradeSkillCategoryID"] in cats else LOOSE + order
+
+
 def main():
     d, build = sys.argv[1], sys.argv[2]
+    cats = {r["ID"]: r for r in rows(d, "TradeSkillCategory")}
+    by_category = {}
     reagents = {r["SpellID"]: r for r in rows(d, "SpellReagents")}
     creates = {}
     for e in sorted(rows(d, "SpellEffect"), key=lambda e: int(e["EffectIndex"])):
@@ -43,6 +58,9 @@ def main():
             if rid > 0 and n > 0:
                 entry += [rid, n]
         recipes[int(spell)] = entry
+        cid = r["TradeSkillCategoryID"]
+        if cid in cats:
+            by_category.setdefault(cid, []).append(int(spell))
 
     out = sys.stdout
     out.write("local _, ns = ...\n\n")
@@ -53,8 +71,17 @@ def main():
     out.write("ns.Recipes = {\n")
     for spell in sorted(recipes):
         out.write(f"\t[{spell}] = {{ {', '.join(str(v) for v in recipes[spell])} }},\n")
+    out.write("}\n\n")
+    out.write("-- Recipe categories as the profession window shows them:\n")
+    out.write("-- [categoryID] = { name, order, recipeSpellID, ... }; order sorts the\n")
+    out.write("-- categories of one profession. Recipes without one have none here.\n")
+    out.write("ns.RecipeCategories = {\n")
+    for cid in sorted(by_category, key=int):
+        ids = ", ".join(str(s) for s in sorted(by_category[cid]))
+        name = lua_str(cats[cid]["Name_lang"])
+        out.write(f"\t[{cid}] = {{ {name}, {category_order(cats, cid)}, {ids} }},\n")
     out.write("}\n")
-    print(f"{len(recipes)} recipes", file=sys.stderr)
+    print(f"{len(recipes)} recipes, {len(by_category)} categories", file=sys.stderr)
 
 
 if __name__ == "__main__":

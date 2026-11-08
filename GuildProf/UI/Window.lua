@@ -4,6 +4,8 @@ local _, ns = ...
 --   professions | members, then recipes someone in the guild knows | detail
 -- The middle column opens with the guild members who have the profession
 -- (skill and recipe count); clicking one filters the recipes to theirs.
+-- The recipes follow, grouped by category in the profession window's
+-- order; a category header folds its recipes.
 -- Hovering a recipe or reagent shows its item tooltip; clicking a recipe
 -- shows its reagents and who can craft it; clicking a crafter whispers them;
 -- shift-click links the item in chat.
@@ -49,6 +51,7 @@ local L = {
 	MEMBER_OLD = "Older addon: %s",
 	OLD_VERSION = "before version announcements",
 	OLDER_COUNT = "%s on an older version",
+	OTHER = "Other",
 }
 UI.L = L
 
@@ -83,6 +86,7 @@ local frame, profButtons, rows, scroll, content, search, detail
 local selectedProf, selectedRecipe
 local filterOwner     -- show only this member's recipes
 local folded = {}     -- skillLine -> true when its member section is folded
+local catFolded = {}  -- categoryID -> true when its recipes are folded
 local docked          -- true while the window sits on the guild frame
 local guildTab
 local linkBox
@@ -371,8 +375,44 @@ local function filteredRecipes()
 	return list
 end
 
--- The middle column: a member section, then the recipes. Each row is one
--- of: header, member, note, recipe.
+-- recipeSpellID -> categoryID, from the generated categories.
+local categoryOf
+local function categoryOfRecipe(id)
+	if not categoryOf then
+		categoryOf = {}
+		for cid, c in pairs(ns.RecipeCategories or {}) do
+			for i = 3, #c do
+				categoryOf[c[i]] = cid
+			end
+		end
+	end
+	return categoryOf[id]
+end
+
+-- Recipes grouped by category, in the profession window's order; recipes
+-- without a category come last, under OTHER.
+local function categories(recipes)
+	local groups, order = {}, {}
+	for _, e in ipairs(recipes) do
+		local cid = categoryOfRecipe(e.id) or 0
+		local g = groups[cid]
+		if not g then
+			local c = cid ~= 0 and ns.RecipeCategories[cid]
+			g = { cid = cid, name = c and c[1] or L.OTHER, order = c and c[2] or math.huge, list = {} }
+			groups[cid] = g
+			order[#order + 1] = g
+		end
+		g.list[#g.list + 1] = e
+	end
+	table.sort(order, function(a, b)
+		if a.order ~= b.order then return a.order < b.order end
+		return a.name < b.name
+	end)
+	return order
+end
+
+-- The middle column: a member section, then the recipes by category. Each
+-- row is one of: update, header, member, note, category, recipe.
 local function entries()
 	local list = {}
 	local Version = ns.Version
@@ -396,9 +436,18 @@ local function entries()
 	local recipes = filteredRecipes()
 	list[#list + 1] = { kind = "header", key = "recipes",
 		text = filterOwner and L.RECIPES_OF:format(filterOwner, #recipes) or L.RECIPES_HEADER:format(#recipes) }
-	for _, e in ipairs(recipes) do
-		e.kind = "recipe"
-		list[#list + 1] = e
+	-- A search shows every match: folds are ignored while it is set.
+	local searching = search ~= nil and search:GetText() ~= ""
+	for _, g in ipairs(categories(recipes)) do
+		local shut = catFolded[g.cid] and not searching
+		list[#list + 1] = { kind = "category", key = g.cid, count = #g.list,
+			text = (shut and "+ " or "- ") .. g.name }
+		if not shut then
+			for _, e in ipairs(g.list) do
+				e.kind = "recipe"
+				list[#list + 1] = e
+			end
+		end
 	end
 	return list
 end
@@ -420,6 +469,10 @@ local function rowEnter(self)
 			GameTooltip:AddLine(L.MEMBER_VERSION:format(v), 0.6, 0.6, 0.6)
 		end
 		GameTooltip:AddLine(L.MEMBER_HINT, 0.6, 0.6, 0.6, true)
+		GameTooltip:Show()
+	elseif e.kind == "category" then
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(L.FOLD_HINT)
 		GameTooltip:Show()
 	elseif e.kind == "update" then
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -451,6 +504,8 @@ local function rowClick(self, button)
 	elseif e.kind == "update" then
 		UI.ShowLink()
 		return
+	elseif e.kind == "category" then
+		catFolded[e.key] = not catFolded[e.key] or nil
 	elseif e.kind == "header" then
 		if e.key == "members" then
 			folded[selectedProf] = not folded[selectedProf] or nil
@@ -476,6 +531,10 @@ local function getRow(i)
 	r.sel = r:CreateTexture(nil, "BACKGROUND")
 	r.sel:SetAllPoints()
 	r.sel:SetColorTexture(1, 0.82, 0, 0.18)
+	-- A faint band behind category headers, like the profession window's bars.
+	r.band = r:CreateTexture(nil, "BACKGROUND")
+	r.band:SetAllPoints()
+	r.band:SetColorTexture(1, 0.82, 0, 0.07)
 	r.icon = r:CreateTexture(nil, "ARTWORK")
 	r.icon:SetSize(18, 18)
 	r.icon:SetPoint("LEFT", 2, 0)
@@ -505,11 +564,17 @@ local function refreshList()
 		r.entry = e
 		r.icon:SetShown(e.kind == "recipe")
 		r.sel:Hide()
+		r.band:SetShown(e.kind == "category")
 		r.count:SetText("")
 		if e.kind == "header" then
 			setRowText(r, 4, e.text)
 			r.text:SetFontObject("GameFontNormal")
 			r.text:SetTextColor(1, 0.82, 0)
+		elseif e.kind == "category" then
+			setRowText(r, 8, e.text)
+			r.text:SetFontObject("GameFontNormal")
+			r.text:SetTextColor(1, 0.82, 0)
+			r.count:SetText("|cffaaaaaa" .. e.count .. "|r")
 		elseif e.kind == "update" then
 			setRowText(r, 4, e.text)
 			r.text:SetFontObject("GameFontNormal")

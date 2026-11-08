@@ -46,8 +46,10 @@ their data.
 - `/gp`, or the GuildProf tab on the side of the guild frame, opens the
   window: professions on the left; in the middle, the guild members who
   have the selected profession (skill, recipe count) followed by the
-  recipes someone in the guild knows (with a search box); on the right,
-  the selected recipe with its reagents and who can craft it.
+  recipes someone in the guild knows, grouped by category in the
+  profession window's order (with a search box; click a category to fold
+  it); on the right, the selected recipe with its reagents and who can
+  craft it.
 - Hover a recipe or reagent for its item tooltip, a member for their
   skill, recipe count and addon version; shift-click a recipe to link it
   in chat; click a member to see only their recipes; right-click a member
@@ -100,8 +102,8 @@ creates the GitHub release. Without `--publish` it only builds the zip.
   fake client: window, guild frame tab, a spellbook that loads late,
   removal of departed members, the update notice.
 - Recipe data: `GuildProf/Data/Recipes.lua` is generated from the client's
-  DB2 tables (SkillLine, SkillLineAbility, SpellEffect, SpellReagents) as
-  CSV from wago.tools:
+  DB2 tables (SkillLine, SkillLineAbility, SpellEffect, SpellReagents,
+  TradeSkillCategory) as CSV from wago.tools:
   `python3 -I tools/gen_recipes.py <csv_dir> <build> > GuildProf/Data/Recipes.lua`.
   Regenerate after a client patch.
 
