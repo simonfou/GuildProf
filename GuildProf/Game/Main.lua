@@ -3,9 +3,7 @@ local addonName, ns = ...
 -- Addon shell: SavedVariables, events, guild binding, roster, own name,
 -- slash commands. Loaded last.
 
-local Store, Sync, Comm = ns.Store, ns.Sync, ns.Comm
-
-ns.roster = {}
+local Store, Sync, Comm, Roster = ns.Store, ns.Sync, ns.Comm, ns.Roster
 
 function ns.Print(...)
 	print("|cff33ccffGuildProf|r:", ...)
@@ -59,28 +57,40 @@ function ns.RequestRoster()
 	end
 end
 
+local lastPrune
+
+-- Reads the roster, then removes the records of characters no longer in
+-- the guild. diag.roster shows how the client spells roster names.
 local function readRoster()
-	local r = {}
-	for i = 1, GetNumGuildMembers() do
+	local total = GetNumGuildMembers() or 0
+	local entries = {}
+	for i = 1, total do
 		local name, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
-		if type(name) == "string" then
-			r[name] = online and true or false
+		if type(name) == "string" and name ~= "" then
+			entries[#entries + 1] = { name = name, online = online and true or false }
 		end
 	end
-	ns.roster = r
+	Roster.Set(entries, total)
+	if ns.db.diag then
+		ns.db.diag.roster = ("%d/%d listed, trusted %s, first %s"):format(#entries, total,
+			tostring(Roster.Trusted()), entries[1] and entries[1].name or "-")
+	end
+	if ns.solo then
+		return
+	end
+	local n, what = Roster.Prune()
+	if what ~= lastPrune then
+		lastPrune = what
+		ns.Log("prune: " .. what)
+	end
+	if n > 0 then
+		ns.OnRecordChanged()
+	end
 end
 
--- true, false, or nil when the roster names this character another way.
+-- true, false, or nil when the roster does not name this character.
 function ns.IsOnline(owner)
-	local v = ns.roster[owner]
-	if v ~= nil then
-		return v
-	end
-	if Ambiguate then
-		local short = Ambiguate(owner, "none")
-		v = ns.roster[short]
-	end
-	return v
+	return Roster.Online(owner)
 end
 
 ---------------------------------------------------------------- guild binding
@@ -112,6 +122,9 @@ local function bindGuild()
 	Store.Bind(ns.db, key)
 	if own then
 		Store.Put(ns.me, own.rev, own.data)
+	end
+	if ns.solo then
+		Roster.Clear()
 	end
 	ns.Debug("guild", key == "" and "(none)" or key, #Store.Owners(), "records")
 	C_Timer.After(2, ns.Scan.Basic)
@@ -216,6 +229,7 @@ SlashCmdList.GUILDPROF = function(msg)
 			ns.Print("|cffff4040error:|r", ns.db.diag.error)
 		end
 		ns.Print("records:", #Store.Owners(), "| digest:", Store.IsBound() and Store.Digest() or "-")
+		ns.Print("roster:", tostring(ns.db.diag and ns.db.diag.roster), "| prune:", tostring(lastPrune))
 		ns.Print("sent:", Comm.stats.sent, "received:", Comm.stats.received, "dropped:",
 			Comm.stats.dropped, "queued:", Comm.Pending())
 		if ns.unknownEvents then

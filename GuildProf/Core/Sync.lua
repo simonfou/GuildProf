@@ -35,6 +35,13 @@ local plannedAck = {} -- newcomer -> true while an A to it is scheduled
 local heardAck = {}   -- newcomer -> time an A for it was heard
 local publishPlanned
 
+-- Senders heard on the guild channel this session: guild members for sure.
+Sync.heard = {}
+
+local function isFormer(owner)
+	return ns.Roster ~= nil and ns.Roster.IsFormer(owner)
+end
+
 local function now()
 	return GetTime()
 end
@@ -241,7 +248,7 @@ handlers.M = function(body, channel, sender)
 			for owner, rev in (line .. ","):gmatch("([^,=]+)=([0-9a-z]+),") do
 				theirs[owner] = Codec.FromB36(rev)
 				local r = Store.Get(owner)
-				if not r or r.rev < theirs[owner] then
+				if (not r or r.rev < theirs[owner]) and not isFormer(owner) then
 					need[#need + 1] = owner
 				end
 			end
@@ -291,6 +298,11 @@ handlers.R = function(body, channel, sender)
 	if channel == "GUILD" and owner ~= sender then
 		return
 	end
+	-- A relayed record of a character who left the guild stays out.
+	if channel ~= "GUILD" and isFormer(owner) then
+		log("R", channel, "from", sender, "for", owner, "left the guild: dropped")
+		return
+	end
 	if Store.Put(owner, rev, data) then
 		log("R", channel, "from", sender, "for", owner, "stored")
 		ns.OnRecordChanged(owner)
@@ -300,6 +312,9 @@ handlers.R = function(body, channel, sender)
 end
 
 function Sync.OnBody(body, channel, sender)
+	if channel == "GUILD" then
+		Sync.heard[sender] = true
+	end
 	if sender == ns.me or not Store.IsBound() then
 		return
 	end

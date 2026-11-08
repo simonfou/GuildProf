@@ -9,6 +9,7 @@
 # Pure Lua 5.1, also loaded headless by tests/run.lua.
 Core\Codec.lua
 Core\Store.lua
+Core\Roster.lua
 Core\Comm.lua
 Core\Sync.lua
 Core\Index.lua

@@ -68,6 +68,13 @@ function Store.Put(owner, rev, data)
 	return true
 end
 
+function Store.Remove(owner)
+	if records and records[owner] then
+		records[owner] = nil
+		cache = nil
+	end
+end
+
 function Store.Rename(old, new)
 	if records and records[old] and old ~= new then
 		local r = records[old]

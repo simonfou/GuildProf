@@ -282,5 +282,37 @@ ok, err = pcall(function()
 end)
 check(ok, "guild tab: " .. tostring(err))
 
+-- Departed members: a roster update removes the record of a character the
+-- roster no longer lists, once the roster finds the player under the
+-- server's form of the name.
+ok, err = pcall(function()
+	local C = ns.Codec
+	local gone = C.EncodeProfs({ [197] = { level = 90, max = 150, ids = C.EncodeIDs({ 2963 }) } })
+	ns.Store.Put("Carol Gone", 1800000600, gone)
+	event("GUILD_ROSTER_UPDATE")
+	check(ns.Store.Get("Carol Gone") ~= nil, "roster without the player's server name: nothing removed")
+	check(ns.db.diag.roster:find("trusted false"), "diag.roster: " .. tostring(ns.db.diag.roster))
+	ns.Sync.OnOwnEcho("Alice Smith")
+	event("GUILD_ROSTER_UPDATE")
+	check(ns.Store.Get("Carol Gone") == nil, "a roster update removes the departed member")
+	check(ns.Store.Get("Bob Jones") ~= nil and ns.Store.Get("Alice Smith") ~= nil, "members and own record kept")
+	check(ns.db.diag.roster == "2/2 listed, trusted true, first Alice Smith", "diag.roster: " .. tostring(ns.db.diag.roster))
+	check(ns.IsOnline("Alice Smith") == true and ns.IsOnline("Bob Jones") == false, "online state from the roster")
+	runTimers(clock + 2)
+	for _, r in ipairs(rows()) do
+		check(not (r:IsShown() and r.entry.kind == "member" and r.entry.m.owner == "Carol Gone"), "departed member left the list")
+	end
+	local realPrint, out = print, {}
+	print = function(...) out[#out + 1] = table.concat({ ... }, " ") end
+	SlashCmdList.GUILDPROF("status")
+	print = realPrint
+	local found
+	for _, l in ipairs(out) do
+		if l:find("prune: removed Carol Gone", 1, true) then found = true end
+	end
+	check(found, "/gp status shows the last prune")
+end)
+check(ok, "prune: " .. tostring(err))
+
 print(("ui smoke: %d failures"):format(failures))
 os.exit(failures == 0 and 0 or 1)

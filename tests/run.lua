@@ -3,7 +3,7 @@
 -- environment, on a simulated guild channel with a virtual clock.
 
 local ROOT = "GuildProf/Core/"
-local MODULES = { "Codec", "Store", "Comm", "Sync", "Index" }
+local MODULES = { "Codec", "Store", "Roster", "Comm", "Sync", "Index" }
 
 -- Generated recipe data, loaded once and shared by every simulated player.
 local dataNs = {}
@@ -130,6 +130,7 @@ local function login(node)
 	node.ns.me = node.guess or node.name
 	node.ns.baseName = node.name:match("^%S+")
 	node.ns.Store.Bind(node.db, "TestGuild")
+	node.ns.Sync.heard = {} -- a new session
 	after(1, function() node.ns.Sync.Hello() end)
 end
 
@@ -326,6 +327,135 @@ do
 	check(inAlchemy[2329] and inAlchemy[999999], "Index: recipes of Alchemy, unknown IDs keep the sender's profession")
 	local m = I.Members(171)
 	check(#m >= 1 and m[1].level >= m[#m].level, "Index: members sorted by level")
+end
+
+-- 8. A character leaves the guild: every player's roster stops listing it,
+-- each removes the record, and a player that still holds it cannot bring
+-- it back.
+do
+	local all = {}
+	for name in pairs(nodes) do all[#all + 1] = name end
+	table.sort(all)
+	local leaver, holdout, back = names[3], nodes[names[15]], nodes[names[9]]
+	local function setRoster(node, without, total)
+		local entries = {}
+		for _, name in ipairs(all) do
+			if name ~= without then
+				entries[#entries + 1] = { name = name, online = nodes[name].online }
+			end
+		end
+		node.ns.Roster.Set(entries, total or #entries)
+	end
+	local function holders()
+		local n = 0
+		for _, node in pairs(nodes) do
+			if node.online and node ~= holdout and node.ns.Store.Get(leaver) then n = n + 1 end
+		end
+		return n
+	end
+
+	-- Everyone logs in again and holds the same table, the leaver's record included.
+	for _, n in pairs(nodes) do logout(n) end
+	runUntil(clock + 5)
+	for i, name in ipairs(all) do
+		after(i * 3, function() login(nodes[name]) end)
+	end
+	runUntil(clock + #all * 3 + 90)
+	ref = snapshot(nodes[all[1]])
+	converged = 0
+	for _, name in ipairs(all) do
+		if snapshot(nodes[name]) == ref then converged = converged + 1 end
+	end
+	check(converged == #all, "before the departure: all converge (" .. converged .. "/" .. #all .. ")")
+	check(nodes[all[1]].ns.Store.Get(leaver) ~= nil, "before the departure: the leaver's record is held")
+
+	-- The leaver goes; the holdout is offline and keeps the record. Each
+	-- remaining player starts a new session, without the leaver's messages.
+	logout(nodes[leaver])
+	logout(holdout)
+	for _, n in pairs(nodes) do n.ns.Sync.heard = {} end
+
+	-- Guards, on one player.
+	local obs = nodes[names[20]]
+	local R = obs.ns.Roster
+	check(not R.Trusted(), "no roster read yet: not trusted")
+	setRoster(obs, leaver, #all)
+	local n, why = R.Prune()
+	check(n == 0 and obs.ns.Store.Get(leaver), "roster missing members: nothing removed (" .. why .. ")")
+	setRoster(obs, obs.name)
+	n, why = R.Prune()
+	check(n == 0 and why == "roster not trusted", "roster without the player: nothing removed (" .. why .. ")")
+	obs.ns.Roster.Set({ { name = obs.name, online = true }, { name = names[1], online = false } }, 2)
+	n, why = R.Prune()
+	check(n == 0 and obs.ns.Store.Get(leaver), "most records would go: nothing removed (" .. why .. ")")
+	setRoster(obs, leaver)
+	obs.ns.Sync.heard[leaver] = true
+	n, why = R.Prune()
+	check(n == 0 and why == "nobody left", "heard on the guild channel this session: kept (" .. why .. ")")
+	obs.ns.Sync.heard = {}
+	local suffixed = {}
+	for _, name in ipairs(all) do
+		suffixed[#suffixed + 1] = { name = name .. "-SomeRealm", online = false }
+	end
+	R.Set(suffixed, #suffixed)
+	check(R.Trusted() and R.Has(leaver) and R.Online(names[1]) == false, "roster names with a realm suffix match")
+	R.Set({ { name = "Player1-Surname", online = true } }, 1)
+	check(R.Online(names[1]) == true, "roster names with a hyphen match")
+
+	-- The departure on every remaining player.
+	for _, node in pairs(nodes) do
+		if node.online then
+			setRoster(node, leaver)
+			node.ns.Roster.Prune()
+		end
+	end
+	check(holders() == 0, "departure: no online player holds the record (" .. holders() .. ")")
+	check(obs.ns.Store.Get(obs.name) ~= nil, "departure: own record kept")
+
+	-- The holdout comes back with the record and no roster yet: its sync
+	-- pushes the record, and the others drop it.
+	local lines = {}
+	for _, node in pairs(nodes) do
+		node.ns.Log = function(t) lines[#lines + 1] = node.name .. ": " .. t end
+	end
+	local function logged(pattern)
+		for _, l in ipairs(lines) do
+			if l:find(pattern) then return true end
+		end
+		return false
+	end
+	holdout.ns.Roster.Clear()
+	reset()
+	login(holdout)
+	runUntil(clock + 60)
+	check(holdout.ns.Store.Get(leaver) ~= nil, "holdout without a roster keeps the record")
+	check(logged("for " .. leaver .. " left the guild: dropped"), "the holdout pushed the record in its sync")
+	check(holders() == 0, "relayed record of a former member dropped (" .. holders() .. " holders)")
+
+	-- A player who already removed it syncs with the holdout: the record
+	-- is listed by the holdout but not requested.
+	logout(back)
+	runUntil(clock + 5)
+	setRoster(back, leaver)
+	login(back)
+	runUntil(clock + 60)
+	check(logged("^" .. back.name .. ": M from " .. holdout.name .. " %-> need 0"), "the holdout listed the record to a pruned player")
+	check(back.ns.Store.Get(leaver) == nil, "former member's record not requested in a sync")
+
+	-- Once the holdout reads the roster, everyone holds the same table again.
+	setRoster(holdout, leaver)
+	holdout.ns.Roster.Prune()
+	ref = snapshot(obs)
+	converged = 0
+	local total = 0
+	for _, node in pairs(nodes) do
+		if node.online then
+			total = total + 1
+			if snapshot(node) == ref then converged = converged + 1 end
+		end
+	end
+	check(converged == total, "after the departure: all online converge (" .. converged .. "/" .. total .. ")")
+	print(("departure (holdout sync + one login): GUILD %d, WHISPER %d"):format(traffic.GUILD, traffic.WHISPER))
 end
 
 print(("%d checks, %d failures"):format(checks, failures))

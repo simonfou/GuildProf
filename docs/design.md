@@ -115,19 +115,34 @@ increasing). Higher rev wins, so merging is order-independent.
 - Own name: the server echoes GUILD messages to their sender; the first echo
   gives the exact form others see (Forever gives `First Surname`),
   and the record is renamed and republished under it.
+- **Departed members**: on each roster update (`GUILD_ROSTER_UPDATE`) the
+  records of characters the roster no longer lists are removed. A roster is
+  trusted only when it lists every member (a name for each of
+  `GetNumGuildMembers()`) and names the player under the records'
+  spelling; names match as given, with hyphens as spaces, or without a
+  `-Realm` suffix. Nothing is removed when more than half of the records
+  would go (a misread roster, not a departure), and a character heard on
+  the guild channel this session is kept (it may have joined after the
+  roster was read). During a sync a former member's record is neither
+  asked for (`N`) nor accepted by whisper (`R`), so a player who missed
+  the departure cannot bring it back. A character who rejoins republishes
+  its record at its next login, like any record a peer lacks.
+  `GuildProfDB.diag.roster` shows the roster read (count, trusted, first
+  name) and `/gp status` the last removal.
 
 Measured headless (`tests/run.lua`, 20 players, about 500 bytes per record):
 
 | Case | GUILD | WHISPER | Bytes |
 | --- | --- | --- | --- |
 | Login, already in sync | 1 | 0 | ~20 |
-| 3 logins after 6 records changed | 8 | 47 | 8.9 KB |
-| New member, empty table | 3 | 51 | 9.9 KB |
+| 3 logins after 6 records changed | 16 | 47 | 8.9 KB |
+| New member, empty table | 2 | 51 | 9.6 KB |
 
 Known limits, accepted for now:
 
-- Records of members who left the guild stay; pruning against the roster
-  waits for the roster name format (GP4).
+- A member on a version without departed-member removal keeps those
+  records: its digest differs, so each of its logins starts a sync that
+  transfers nothing, until it updates.
 - Two online members who both missed a change only meet at the next login
   of either one (there is no periodic resync).
 - Any member can forward any record during a sync (guild-private trust).
@@ -142,7 +157,7 @@ First `/console scriptErrors 1`, then a full game restart (new addon).
 | GP1 | `/gp debug`, then `/gp status` after 20 s | me, guild key, records >= 1, sent >= 1 | confirmed |
 | GP2 | Open the player's own profession window on a profession tab | debug line `scanned <skillLine> <n> recipes` | confirmed; the frame opens on a book page, the scan starts once a profession **tab** is clicked |
 | GP3 | `/run local a,b=GetProfessions() print("GP3",a and select(7,GetProfessionInfo(a)),b and select(7,GetProfessionInfo(b)))` | base skill lines such as 171, 164 | confirmed |
-| GP4 | `/run local n,_,_,_,_,_,_,_,o=GetGuildRosterInfo(1) print("GP4",n,o,GetNumGuildMembers())` | a name, true/false, the member count; the name format matters | open |
+| GP4 | `/run local n,_,_,_,_,_,_,_,o=GetGuildRosterInfo(1) print("GP4",n,o,GetNumGuildMembers())` | a name, true/false, the member count; the name format matters (also in `diag.roster` after a `/reload`) | confirmed: `First Surname`, the same form as the addon sender; 20 of 20 members listed, the player found. The online flag is not checked yet |
 | GP5 | `/run print("GP5",C_TradeSkillUI.GetTradeSkillDisplayName(164),C_TradeSkillUI.GetTradeSkillDisplayName(333))` | localized names, also for professions the player lacks | open |
 | GP6 | With the profession window open: `/run local T=C_TradeSkillUI print("GP6",T.GetAllRecipeIDs and #T.GetAllRecipeIDs(),#T.GetFilteredRecipeIDs(),T.GetBaseProfessionInfo().professionID,T.GetChildProfessionInfo().professionID)` | two counts, base id (171...) and child id (2937...) | confirmed: child `professionID` is 0, `GetAllRecipeIDs` returns the whole profession |
 | GP7 | `/run print("GP7",GuildProfCharDB.me,UnitFullName("player"))` | the server's form of the name next to the client's | confirmed: `First Surname`, space-joined |

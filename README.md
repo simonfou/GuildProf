@@ -44,14 +44,16 @@ their data.
   Opening one also rescans it.
 - **Sync now** (in the window) or `/gp sync` rescans and asks the guild
   for updates right away.
-- `/gp status` shows the guild, the number of records, the last scan and
-  the message counters. `/gp scan` rescans, `/gp debug` toggles debug
+- `/gp status` shows the guild, the number of records, the last scan, the
+  message counters, the roster read and the last removal of departed
+  members. `/gp scan` rescans, `/gp debug` toggles debug
   output.
 
 ## Known limits
 
-- Characters who left the guild stay listed until their data is pruned
-  (not implemented yet).
+- A character who leaves the guild disappears from each member's list at
+  that member's next guild roster update. Nothing is removed while the
+  roster looks incomplete, or when most records would go at once.
 - Two members who both missed a change while offline get it at the next
   login or **Sync now** of either one.
 
