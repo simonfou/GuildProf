@@ -26,7 +26,8 @@ In use on WoW Forever (1.60.x), the only target client. Releases:
    folder it contains into `AddOns`. The result is
    `AddOns\GuildProf\GuildProf.toc`. Windows' **Extract All** adds a
    second folder level (`AddOns\GuildProf\GuildProf\`), which the game
-   does not load.
+   does not load. On a Mac, double-clicking extracts the zip: drag the
+   `GuildProf` folder that appears.
 4. Quit and restart the game (a `/reload` does not pick up a new addon).
    At character select, **AddOns** lists GuildProf.
 
@@ -47,12 +48,14 @@ their data.
   have the selected profession (skill, recipe count) followed by the
   recipes someone in the guild knows (with a search box); on the right,
   the selected recipe with its reagents and who can craft it.
-- Hover a recipe or reagent for its item tooltip; shift-click a recipe to
-  link it in chat; click a member to see only their recipes; right-click a
-  member or click a crafter to whisper them.
-- Recipes and skill levels are read from the spellbook at login and
-  whenever they change: there is no need to open the profession windows.
-  Opening one also rescans it.
+- Hover a recipe or reagent for its item tooltip, a member for their
+  skill, recipe count and addon version; shift-click a recipe to link it
+  in chat; click a member to see only their recipes; right-click a member
+  or click a crafter to whisper them.
+- Recipes and skill levels are read from the spellbook at login, a few
+  more times during the first minute and a half, and whenever they
+  change: there is no need to open the profession windows. Opening one
+  also rescans it.
 - **Sync now** (in the window) or `/gp sync` rescans and asks the guild
   for updates right away.
 - `/gp status` shows the guild, the number of records, the last scan, the
@@ -73,8 +76,8 @@ their data.
 
 Each character owns one record (levels and recipe IDs, about 2 bytes per
 recipe) with a revision number; the newest revision wins. A login sends
-a single digest of everything the player knows; when it matches, nothing
-else is sent. When it differs, one guild member answers and the two
+the addon version and a single digest of everything the player knows;
+when the digest matches, nothing else is sent. When it differs, one guild member answers and the two
 compare per-bucket digests by whisper, then exchange only the records that
 differ. Details and measured message counts: [docs/design.md](docs/design.md).
 
@@ -91,9 +94,11 @@ creates the GitHub release. Without `--publish` it only builds the zip.
 
 - Tests (Lua 5.1): `lua-5.1 tests/run.lua` loads the pure modules
   (`GuildProf/Core/`) and simulates a guild of 22 players on a virtual
-  clock: convergence, message counts, name learning (`SEED=<n>` varies the
-  timings). `lua-5.1 tests/ui_smoke.lua` runs the whole addon, window and
-  guild frame tab included, against a fake client.
+  clock: convergence, message counts, name learning, a member leaving, a
+  player of another guild, version announcements (`SEED=<n>` varies the
+  timings). `lua-5.1 tests/ui_smoke.lua` runs the whole addon against a
+  fake client: window, guild frame tab, a spellbook that loads late,
+  removal of departed members, the update notice.
 - Recipe data: `GuildProf/Data/Recipes.lua` is generated from the client's
   DB2 tables (SkillLine, SkillLineAbility, SpellEffect, SpellReagents) as
   CSV from wago.tools:
