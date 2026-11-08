@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="70%">
+      <stop offset="0" stop-color="#2a3f63"/>
+      <stop offset="1" stop-color="#0c1322"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe49a"/>
+      <stop offset="0.5" stop-color="#d39a36"/>
+      <stop offset="1" stop-color="#8f5c16"/>
+    </linearGradient>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9a2a3a"/>
+      <stop offset="1" stop-color="#4a0e19"/>
+    </linearGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f1ea"/>
+      <stop offset="1" stop-color="#9c978f"/>
+    </linearGradient>
+    <linearGradient id="wood" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#a06a33"/>
+      <stop offset="1" stop-color="#5e3a19"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ffe9a8" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ffb43a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <!-- Shield -->
+  <path d="M128 100 Q256 72 384 100 L384 268 Q384 372 256 436 Q128 372 128 268 Z"
+        fill="url(#field)" stroke="url(#rim)" stroke-width="20" stroke-linejoin="round"/>
+  <path d="M150 118 Q256 96 362 118 L362 150 Q256 128 150 150 Z" fill="#ffffff" opacity="0.08"/>
+
+  <!-- Spark glow at the strike point -->
+  <circle cx="236" cy="240" r="46" fill="url(#glow)"/>
+
+  <!-- Anvil -->
+  <path d="M150 262 C176 256 194 256 206 256 L342 256 L342 286 L316 291
+           C303 301 299 314 304 326 L322 338 L322 354 L192 354 L192 338 L210 326
+           C215 314 211 301 198 292 C178 288 162 280 150 262 Z"
+        fill="url(#steel)" stroke="#1d130d" stroke-width="7" stroke-linejoin="round"/>
+  <rect x="210" y="262" width="126" height="6" rx="3" fill="#ffffff" opacity="0.55"/>
+
+  <!-- Hammer -->
+  <g transform="translate(300 214) rotate(35)">
+    <rect x="-8" y="-104" width="16" height="92" rx="6"
+          fill="url(#wood)" stroke="#1d130d" stroke-width="6"/>
+    <rect x="-44" y="-20" width="88" height="40" rx="7"
+          fill="url(#steel)" stroke="#1d130d" stroke-width="7"/>
+  </g>
+
+  <!-- Sparks -->
+  <g fill="#ffd96e">
+    <path d="M228 214 L233 228 L247 233 L233 238 L228 252 L223 238 L209 233 L223 228 Z"/>
+    <path d="M200 236 L203 244 L211 247 L203 250 L200 258 L197 250 L189 247 L197 244 Z"/>
+    <path d="M254 196 L257 204 L265 207 L257 210 L254 218 L251 210 L243 207 L251 204 Z"/>
+  </g>
+</svg>
