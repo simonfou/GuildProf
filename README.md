@@ -9,7 +9,25 @@ leaves the guild.
 
 ## Status
 
-Early development, not released yet. Target client: WoW Forever (1.60.x).
+Early development, in use on WoW Forever (1.60.x), the only target
+client. No tagged release yet: install from the `main` branch.
+
+## Install
+
+1. On GitHub, **Code > Download ZIP**, then extract it.
+2. Inside the extracted `GuildProf-main` folder, copy the **`GuildProf`**
+   folder (the one that holds `GuildProf.toc`) into
+   `World of Warcraft/_forever_/Interface/AddOns/`. The result must be
+   `.../AddOns/GuildProf/GuildProf.toc`, not `.../AddOns/GuildProf-main/`.
+3. Restart the game completely (a `/reload` does not pick up a new addon).
+   At character select, **AddOns** should list GuildProf as enabled.
+
+**Update**: delete the old `AddOns/GuildProf` folder, copy the new one the
+same way, then `/reload` or restart.
+
+**Requirements**: every guild member who wants to share runs the addon.
+Forever trial accounts cannot send addon messages, so they cannot share
+their data.
 
 ## Use
 
@@ -29,6 +47,13 @@ Early development, not released yet. Target client: WoW Forever (1.60.x).
 - `/gp status` shows the guild, the number of records, the last scan and
   the message counters. `/gp scan` rescans, `/gp debug` toggles debug
   output.
+
+## Known limits
+
+- Characters who left the guild stay listed until their data is pruned
+  (not implemented yet).
+- Two members who both missed a change while offline get it at the next
+  login or **Sync now** of either one.
 
 ## How sharing works
 
