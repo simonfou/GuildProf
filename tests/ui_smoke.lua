@@ -347,6 +347,33 @@ ok, err = pcall(function()
 end)
 check(ok, "categories: " .. tostring(err))
 
+-- Detail: the required skill shows only when the data has a real minimum.
+ok, err = pcall(function()
+	local function texts()
+		local out = {}
+		for _, w in ipairs(created) do
+			if w._kind == "FontString" and w._shown and type(w._text) == "string" then out[#out + 1] = w._text end
+		end
+		return table.concat(out, "\n")
+	end
+	local function pick(sl, id)
+		for _, w in ipairs(created) do
+			if rawget(w, "sl") == sl then w:Click() end
+		end
+		for _, r in ipairs(rows()) do
+			if r:IsShown() and r.entry.kind == "category" and r.entry.text:sub(1, 1) == "+" then r:Click("LeftButton") end
+		end
+		for _, r in ipairs(rows()) do
+			if r:IsShown() and r.entry.kind == "recipe" and r.entry.id == id then r:Click("LeftButton") return true end
+		end
+	end
+	check(pick(197, 2963), "Tailoring recipe 2963 listed")
+	check(not texts():find("Requires Tailoring", 1, true), "no 'Requires (1)' for a minimum of 1")
+	check(pick(164, 2675), "Blacksmithing recipe 2675 listed")
+	check(texts():find("Requires Blacksmithing (135)", 1, true), "a real minimum is shown")
+end)
+check(ok, "detail: " .. tostring(err))
+
 -- Guild frame tab.
 ok, err = pcall(function()
 	local cf = CreateFrame("Frame", "CommunitiesFrame", UIParent)

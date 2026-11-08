@@ -280,7 +280,9 @@ local function refreshDetail()
 	d.name:SetText(recipeName(id))
 	d.name:SetTextColor(qualityColor(itemOf(id)))
 	local sl = data and data[1] or selectedProf
-	d.req:SetText(L.REQUIRES:format(ns.ProfName(sl), data and data[2] or "?"))
+	-- The data's minimum is 1 for nearly every recipe: only a real one is shown.
+	local min = data and data[2]
+	d.req:SetText(min and min > 1 and L.REQUIRES:format(ns.ProfName(sl), min) or ns.ProfName(sl))
 
 	local last = d.reagentsTitle
 	local n = 0
