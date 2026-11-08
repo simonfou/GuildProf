@@ -237,6 +237,8 @@ handlers.NEW_RECIPE_LEARNED = scanSoon
 handlers.SPELLS_CHANGED = scanSoon
 
 handlers.GET_ITEM_INFO_RECEIVED = function() ns.UI.RefreshSoon() end
+-- Reagent counts and work-order boxes follow the bags.
+handlers.BAG_UPDATE_DELAYED = function() ns.UI.OnBagsChanged() end
 
 frame:SetScript("OnEvent", function(_, event, ...)
 	handlers[event](...)

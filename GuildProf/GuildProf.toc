@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: GuildProf
 ## Notes: Which guild members can craft what: professions and recipes shared within the guild.
-## Version: 1.1.1
+## Version: 1.2.0
 ## SavedVariables: GuildProfDB
 ## SavedVariablesPerCharacter: GuildProfCharDB
 ## IconTexture: Interface\Icons\Trade_BlackSmithing
@@ -15,9 +15,11 @@ Core\Version.lua
 Core\Comm.lua
 Core\Sync.lua
 Core\Index.lua
+Core\Order.lua
 Data\Recipes.lua
 
 # Client side.
 UI\Window.lua
 Game\Scan.lua
+Game\Mail.lua
 Game\Main.lua

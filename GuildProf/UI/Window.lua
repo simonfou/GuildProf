@@ -9,6 +9,9 @@ local _, ns = ...
 -- Hovering a recipe or reagent shows its item tooltip; clicking a recipe
 -- shows its reagents and who can craft it; clicking a crafter whispers them;
 -- shift-click links the item in chat.
+-- Work order: a box per reagent says whether the player sends it (checked
+-- by default when the bags hold enough); the mail icon of a crafter row
+-- prepares a mail to that crafter with the checked reagents.
 -- The window also opens from a tab on the guild frame, over its content.
 -- When a guild member runs a newer version, the list starts with a row that
 -- opens the download link, selected for copying.
@@ -52,6 +55,10 @@ local L = {
 	OLD_VERSION = "before version announcements",
 	OLDER_COUNT = "%s on an older version",
 	OTHER = "Other",
+	REAGENT_HAVE = "%s x%s  %s(%s)|r",
+	SEND_HINT = "Checked: you send it with a work order.\nUnchecked: the crafter uses their own.",
+	MAIL_HINT = "Work order by mail",
+	MAIL_STEPS = "With a mailbox open: prepares a mail to %s with the checked reagents. Check it, then click Send.",
 }
 UI.L = L
 
@@ -90,6 +97,8 @@ local catFolded = {}  -- categoryID -> true when its recipes are folded
 local docked          -- true while the window sits on the guild frame
 local guildTab
 local linkBox
+local provide = {}    -- recipeID -> item -> true/false: the player's own choice
+local counts = {}     -- item -> mailable count in the bags, read at each detail refresh
 
 ---------------------------------------------------------------- helpers
 
@@ -170,6 +179,31 @@ end
 
 ---------------------------------------------------------------- detail pane
 
+-- Whether the player sends a reagent: their choice, else whether the bags
+-- hold enough of it.
+local function sends(id, item, need)
+	local choice = provide[id] and provide[id][item]
+	if choice ~= nil then
+		return choice
+	end
+	return (counts[item] or 0) >= need
+end
+
+local function workOrder(owner)
+	local id = selectedRecipe
+	local data = id and recipeData(id)
+	if not data then
+		return
+	end
+	local set = {}
+	for i = 5, #data - 1, 2 do
+		if sends(id, data[i], data[i + 1]) then
+			set[data[i]] = true
+		end
+	end
+	ns.Mail.Prepare(id, owner, set)
+end
+
 local function buildDetail(parent)
 	local d = CreateFrame("Frame", nil, parent)
 	d:SetPoint("TOPLEFT", parent, "TOPLEFT", 540, -32)
@@ -206,9 +240,25 @@ local function buildDetail(parent)
 		local b = CreateFrame("Button", nil, d)
 		b:SetSize(240, 20)
 		b:SetPoint("TOPLEFT", d.reagentsTitle, "BOTTOMLEFT", 0, -4 - (i - 1) * 22)
+		b.check = CreateFrame("CheckButton", nil, b, "UICheckButtonTemplate")
+		b.check:SetSize(20, 20)
+		b.check:SetPoint("LEFT")
+		b.check:SetScript("OnClick", function(self)
+			local id = selectedRecipe
+			if id and b.item then
+				provide[id] = provide[id] or {}
+				provide[id][b.item] = self:GetChecked() and true or false
+			end
+		end)
+		b.check:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(L.SEND_HINT, 1, 1, 1, 1, true)
+			GameTooltip:Show()
+		end)
+		b.check:SetScript("OnLeave", GameTooltip_Hide)
 		b.tex = b:CreateTexture(nil, "ARTWORK")
 		b.tex:SetSize(18, 18)
-		b.tex:SetPoint("LEFT")
+		b.tex:SetPoint("LEFT", b.check, "RIGHT", 2, 0)
 		b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		b.text:SetPoint("LEFT", b.tex, "RIGHT", 6, 0)
 		b.text:SetPoint("RIGHT")
@@ -230,8 +280,26 @@ local function buildDetail(parent)
 		local b = CreateFrame("Button", nil, d)
 		b:SetSize(240, 16)
 		b:SetPoint("TOPLEFT", d.craftersTitle, "BOTTOMLEFT", 0, -4 - (i - 1) * 17)
+		b.mail = CreateFrame("Button", nil, b)
+		b.mail:SetSize(16, 16)
+		b.mail:SetPoint("RIGHT")
+		b.mail.tex = b.mail:CreateTexture(nil, "ARTWORK")
+		b.mail.tex:SetAllPoints()
+		b.mail.tex:SetAtlas("ui-hud-minimap-mail-icon")
+		b.mail:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+		b.mail:SetScript("OnClick", function()
+			if b.owner then workOrder(b.owner) end
+		end)
+		b.mail:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(L.MAIL_HINT)
+			GameTooltip:AddLine(L.MAIL_STEPS:format(b.owner or ""), 1, 1, 1, true)
+			GameTooltip:Show()
+		end)
+		b.mail:SetScript("OnLeave", GameTooltip_Hide)
 		b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		b.text:SetAllPoints()
+		b.text:SetPoint("LEFT")
+		b.text:SetPoint("RIGHT", b.mail, "LEFT", -4, 0)
 		b.text:SetJustifyH("LEFT")
 		b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 		b:SetScript("OnClick", function(self)
@@ -286,14 +354,19 @@ local function refreshDetail()
 
 	local last = d.reagentsTitle
 	local n = 0
+	counts = ns.Mail.Counts()
 	if data then
 		for i = 5, #data - 1, 2 do
 			n = n + 1
 			local b = d.reagents[n]
 			if not b then break end
-			b.item = data[i]
-			b.tex:SetTexture(C_Item.GetItemIconByID(data[i]) or 134400)
-			b.text:SetText((itemName(data[i]) or "...") .. " x" .. data[i + 1])
+			local item, need = data[i], data[i + 1]
+			local have = counts[item] or 0
+			b.item = item
+			b.tex:SetTexture(C_Item.GetItemIconByID(item) or 134400)
+			b.text:SetText(L.REAGENT_HAVE:format(itemName(item) or "...", need,
+				have >= need and "|cff999999" or "|cffff5050", have))
+			b.check:SetChecked(sends(id, item, need))
 			b:Show()
 			last = b
 		end
@@ -315,6 +388,7 @@ local function refreshDetail()
 		b.owner = nil
 		b.text:SetText(L.NOBODY)
 		b.text:SetTextColor(0.55, 0.55, 0.55)
+		b.mail:Hide()
 		b:Show()
 	end
 	-- Rows that fit under the reagents (the window is shorter on the guild frame).
@@ -332,6 +406,7 @@ local function refreshDetail()
 		local lvl = levelOf(owner, sl)
 		b.text:SetText(owner .. (lvl and ("  (" .. lvl .. ")") or ""))
 		colorOwner(b.text, owner)
+		b.mail:SetShown(owner ~= ns.me)
 		b:Show()
 	end
 end
@@ -772,6 +847,21 @@ function UI.RefreshSoon()
 	C_Timer.After(0.2, function()
 		planned = false
 		UI.Refresh()
+	end)
+end
+
+-- Bags changed: only the detail's reagent counts and boxes depend on them.
+local bagsPlanned
+function UI.OnBagsChanged()
+	if bagsPlanned or not frame or not frame:IsShown() or not selectedRecipe then
+		return
+	end
+	bagsPlanned = true
+	C_Timer.After(0.2, function()
+		bagsPlanned = false
+		if frame:IsShown() then
+			refreshDetail()
+		end
 	end)
 end
 

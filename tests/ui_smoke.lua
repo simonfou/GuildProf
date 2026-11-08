@@ -154,6 +154,69 @@ hooksecurefunc = function(t, name, fn)
 	t[name] = function(...) local r = old(...) fn(...) return r end
 end
 
+-- Bags, cursor and the Send Mail tab. A split dropped on an empty slot
+-- lands locked and unlocks a moment later, as when the server confirms it.
+local bags = { [0] = {} }      -- bag -> slot -> { itemID, stackCount, isLocked, isBound }
+local BAG_SIZE = { [0] = 16 }
+local cursor                   -- { stack } or { split, from, count }
+local attached = {}            -- { itemID, count } per attachment
+local redErrors = {}
+NUM_BAG_SLOTS = 4
+ATTACHMENTS_MAX_SEND = 12
+C_Container = {
+	GetContainerNumSlots = function(b) return BAG_SIZE[b] or 0 end,
+	GetContainerNumFreeSlots = function(b)
+		local n = 0
+		for s = 1, BAG_SIZE[b] or 0 do
+			if not (bags[b] and bags[b][s]) then n = n + 1 end
+		end
+		return n, 0
+	end,
+	GetContainerItemInfo = function(b, s)
+		local i = bags[b] and bags[b][s]
+		if i then
+			return { itemID = i.itemID, stackCount = i.stackCount, isLocked = i.isLocked or false, isBound = i.isBound or false }
+		end
+	end,
+	SplitContainerItem = function(b, s, n)
+		local i = bags[b] and bags[b][s]
+		assert(i and not cursor and n < i.stackCount, "split of a stack larger than n, empty cursor")
+		cursor = { split = true, from = i, count = n }
+	end,
+	PickupContainerItem = function(b, s)
+		local i = bags[b] and bags[b][s]
+		if cursor and cursor.split then
+			assert(not i, "a split goes to an empty slot")
+			cursor.from.stackCount = cursor.from.stackCount - cursor.count
+			local placed = { itemID = cursor.from.itemID, stackCount = cursor.count, isLocked = true }
+			bags[b] = bags[b] or {}
+			bags[b][s] = placed
+			C_Timer.After(0.25, function() placed.isLocked = false end)
+			cursor = nil
+		else
+			assert(not cursor, "pickup with an item on the cursor")
+			assert(i and not i.isLocked, "pickup of an empty or locked slot")
+			cursor = { stack = i }
+		end
+	end,
+}
+ClickSendMailItemButton = function()
+	assert(cursor and cursor.stack, "attach with a whole stack on the cursor")
+	cursor.stack.isLocked = true
+	attached[#attached + 1] = { itemID = cursor.stack.itemID, count = cursor.stack.stackCount }
+	cursor = nil
+end
+HasSendMailItem = function(i) return attached[i] ~= nil end
+GetCursorInfo = function() if cursor then return "item" end end
+ClearCursor = function() cursor = nil end
+UIErrorsFrame = { AddMessage = function(_, text) redErrors[#redErrors + 1] = text end }
+MailFrame = newWidget("Frame")
+SendMailFrame = newWidget("Frame")
+SendMailNameEditBox = newWidget("EditBox")
+SendMailSubjectEditBox = newWidget("EditBox")
+SendMailBodyEditBox = newWidget("EditBox")
+MailFrameTab_OnClick = function(_, tab) SendMailFrame:SetShown(tab == 2) end
+
 local tocVersion
 for line in io.lines("GuildProf/GuildProf.toc") do
 	tocVersion = tocVersion or line:match("^## Version: (%S+)")
@@ -373,6 +436,129 @@ ok, err = pcall(function()
 	check(texts():find("Requires Blacksmithing (135)", 1, true), "a real minimum is shown")
 end)
 check(ok, "detail: " .. tostring(err))
+
+-- Work order: reagent boxes follow the bags; the mail icon fills the Send
+-- Mail tab, attaches whole stacks at once and a split once it lands.
+ok, err = pcall(function()
+	local C, Mail = ns.Codec, ns.Mail
+	-- 1292963: 3 x 274030, 2 x 14342, 16 x 14048, 8 x 14341.
+	ns.Store.Put("Erin Cloth", 1800000800, C.EncodeProfs({
+		[197] = { level = 150, max = 150, ids = C.EncodeIDs({ 1292963 }) },
+	}))
+	local function fill()
+		bags[0] = {
+			[1] = { itemID = 274030, stackCount = 3 },  -- exact stack
+			[2] = { itemID = 14342, stackCount = 5 },   -- split 2 off
+			[3] = { itemID = 14048, stackCount = 10 },  -- 10 + 6, whole
+			[4] = { itemID = 14048, stackCount = 6 },
+			[5] = { itemID = 14341, stackCount = 8, isBound = true }, -- not mailable
+		}
+		attached, redErrors, cursor = {}, {}, nil
+		SendMailNameEditBox:SetText("")
+	end
+	fill()
+	local function pick(id)
+		for _, w in ipairs(created) do
+			if rawget(w, "sl") == 197 then w:Click() end
+		end
+		for _, r in ipairs(rows()) do
+			if r:IsShown() and r.entry.kind == "category" and r.entry.text:sub(1, 1) == "+" then r:Click("LeftButton") end
+		end
+		for _, r in ipairs(rows()) do
+			if r:IsShown() and r.entry.kind == "recipe" and r.entry.id == id then r:Click("LeftButton") return true end
+		end
+	end
+	local function boxes()
+		local out = {}
+		for _, w in ipairs(created) do
+			if rawget(w, "check") and w._shown and rawget(w, "item") then out[w.item] = w end
+		end
+		return out
+	end
+	local function order(owner)
+		for _, w in ipairs(created) do
+			if rawget(w, "mail") and w._shown and rawget(w, "owner") == owner then
+				check(w.mail:IsShown(), "mail icon on " .. owner)
+				w.mail._scripts.OnEnter(w.mail)
+				w.mail:Click()
+				return true
+			end
+		end
+	end
+	local function sent(item)
+		local n = 0
+		for _, a in ipairs(attached) do
+			if a.itemID == item then n = n + 1 end
+		end
+		return n
+	end
+
+	check(pick(1292963), "recipe 1292963 listed")
+	local b = boxes()
+	check(b[274030] and b[274030].check:GetChecked(), "box checked: bags hold 3 of 3")
+	check(b[14048] and b[14048].check:GetChecked(), "box checked: 16 of 16 over two stacks")
+	check(b[14341] and not b[14341].check:GetChecked(), "box unchecked: the only stack is soulbound")
+	check(b[14341].text:GetText():find("(0)", 1, true), "soulbound stack counted as none: " .. b[14341].text:GetText())
+
+	-- No mailbox: a red error and nothing filled.
+	check(order("Erin Cloth"), "Erin listed as a crafter")
+	check(redErrors[1] == Mail.L.NO_MAILBOX, "red error without a mailbox: " .. tostring(redErrors[1]))
+	check(SendMailNameEditBox:GetText() == "" and #attached == 0, "nothing filled without a mailbox")
+
+	-- Mailbox open on the inbox tab.
+	MailFrame:Show()
+	SendMailFrame:Hide()
+	order("Erin Cloth")
+	check(#redErrors == 1, "no error with a mailbox: " .. tostring(redErrors[2]))
+	check(SendMailFrame:IsShown(), "switched to the Send Mail tab")
+	check(SendMailNameEditBox:GetText() == "Erin Cloth", "recipient")
+	check(SendMailSubjectEditBox:GetText() == "Work order: Spell 1292963", "subject: " .. SendMailSubjectEditBox:GetText())
+	local body = SendMailBodyEditBox:GetText()
+	check(body:find("Included: 3 Item 274030, 2 Item 14342, 16 Item 14048.", 1, true), "body lists the sent reagents:\n" .. body)
+	check(body:find("Please use your own: 8 Item 14341.", 1, true), "body lists the crafter's reagents")
+	check(#body <= 500, "body within the mail limit")
+	check(#attached == 3 and Mail.Busy(), "whole stacks at once, the split waits (" .. #attached .. ")")
+	runTimers(clock + 1)
+	check(#attached == 4 and not Mail.Busy(), "split attached once it landed (" .. #attached .. ")")
+	check(sent(274030) == 1 and sent(14342) == 1 and sent(14048) == 2, "one attachment per stack")
+	check(attached[4].itemID == 14342 and attached[4].count == 2, "the split sends exactly 2")
+	check(bags[0][2].stackCount == 3, "3 left of the split stack")
+
+	-- A second order while the mail holds items: refused.
+	order("Erin Cloth")
+	check(redErrors[#redErrors] == Mail.L.NOT_EMPTY, "refused while the mail has items")
+
+	-- Ticking a reagent the bags lack: every shortfall named, nothing attached.
+	fill()
+	pick(1292963)
+	local box = boxes()[14341].check
+	box:SetChecked(true)
+	box:Click()
+	order("Erin Cloth")
+	check(redErrors[1] and redErrors[1]:find("Item 14341 (0 of 8)", 1, true), "missing reagent named: " .. tostring(redErrors[1]))
+	check(#attached == 0, "nothing attached when a reagent is missing")
+	box:SetChecked(false)
+	box:Click()
+
+	-- The mailbox closes while a split is on its way.
+	fill()
+	order("Erin Cloth")
+	MailFrame:Hide()
+	runTimers(clock + 1)
+	check(redErrors[#redErrors] == Mail.L.CLOSED and not Mail.Busy(), "closing the mailbox ends the order")
+
+	-- Bag changes refresh the counts.
+	fill()
+	MailFrame:Show()
+	bags[0][5] = nil
+	ns.UI.OnBagsChanged()
+	runTimers(clock + 1)
+	check(boxes()[14341].text:GetText():find("(0)", 1, true), "counts refreshed after a bag change")
+	MailFrame:Hide()
+	-- Later sections count the guild's records.
+	ns.Store.Remove("Erin Cloth")
+end)
+check(ok, "work order: " .. tostring(err))
 
 -- Guild frame tab.
 ok, err = pcall(function()

@@ -41,6 +41,37 @@ frame is collapsed); any Blizzard tab (`SetDisplayMode`) or closing the
 guild frame hides it. Blizzard's functions are only hooked, never
 replaced. `/gp` floats the window again at 820 x 500.
 
+## Work order (mail)
+
+One mail per order: one craft of one recipe, sent to a crafter with the
+reagents the player provides. The crafter supplies the rest, so a player
+can send only the rare reagents and leave the common ones to the crafter.
+
+- **Detail pane.** Each reagent row has a box: checked, the player sends
+  it; unchecked, the crafter uses their own. A box starts checked when the
+  bags hold enough (soulbound stacks do not count); the row shows the
+  count in the bags, red when short. A click on the box keeps the choice
+  for that recipe during the session. Each crafter row other than the
+  player's own ends with a mail icon that prepares the order.
+- **Always enabled.** Without an open mailbox, the icon shows a red error
+  (`UIErrorsFrame`) and changes nothing. With one, it switches to the Send
+  Mail tab and fills the recipient, the subject (`Work order: <recipe>`)
+  and a body listing what is included and what the crafter supplies. The
+  player checks the mail and clicks Send.
+- **Attachments** (`Core/Order.lua`, pure Lua): the mail attaches whole
+  bag slots only, so a split stack from the cursor would go whole. The
+  planner sends a stack of the exact size if there is one, else whole
+  stacks, and cuts the remainder (at most one split per reagent) into a
+  free slot of a plain bag. When that exceeds the mail's 12 attachments,
+  a second pass prefers one split per reagent. It refuses, naming the
+  cause, when a reagent is short, free slots are lacking, or more than 12
+  stacks are needed. Stacks already attached (locked) do not count.
+- **Attaching** (`Game/Mail.lua`): whole stacks go on the click. A split
+  goes to its free slot on the click and is attached once it sits there
+  unlocked, checked every 0.1 s for up to 5 s. The order stops with an
+  error if the mailbox closes first. It refuses to start while the mail
+  already holds items, or while an item is on the cursor.
+
 ## Data
 
 - **Records** (replicated): one per character, owned by that character:
@@ -179,7 +210,7 @@ Known limits, accepted for now:
 
 ## In-game checks
 
-First `/console scriptErrors 1`, then a full game restart (new addon).
+First `/console scriptErrors 1`, then a full game restart for a first install; `/reload` after an update, new files included.
 
 | ID | Do | Expect | Status |
 | --- | --- | --- | --- |
@@ -195,3 +226,6 @@ First `/console scriptErrors 1`, then a full game restart (new addon).
 | GP10 | `/reload`, then read `GuildProfDB.diag.basic` | per profession: `IsSpellKnown n, window n, both n` with matching counts | confirmed: 51/51/51, 24/24/24, 17/17/17, 1/1/1 |
 | GP11 | Open the guild frame | a GuildProf tab under the guild tabs; clicking it shows the window over the guild frame; Roster takes it back | confirmed |
 | GP12 | Two members on different versions; the newer one does `/reload` | the older one's chat says `version x.y.z is out`; the newer one's SavedVariables list the older one's version under `versions` | confirmed with 1.1.1 and 1.1.0 |
+| GP13 | No mailbox open: click a crafter's mail icon | a red error, nothing changes | confirmed |
+| GP14 | Mailbox open on the inbox, a recipe whose reagents the bags hold, one of them only in a stack larger than needed: click a crafter's mail icon | Send Mail tab shown; recipient, subject and body filled; every reagent attached with its exact count, the split one a moment after the others; the source stack keeps the rest | confirmed |
+| GP15 | Uncheck a reagent, then check one the bags lack, and order again | the unchecked one is listed under "Please use your own"; the lacking one is named in a red error and nothing is attached | confirmed |

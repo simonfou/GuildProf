@@ -58,6 +58,15 @@ their data.
   skill, recipe count and addon version; shift-click a recipe to link it
   in chat; click a member to see only their recipes; right-click a member
   or click a crafter to whisper them.
+- **Work order by mail**: at a mailbox, select a recipe, tick the
+  reagents you send (ticked by default when your bags hold enough; the
+  crafter uses their own for the others), then click the mail icon at
+  the end of a crafter's row. GuildProf opens the Send Mail tab, fills
+  the recipient, a subject and a message listing what is included and
+  what the crafter supplies, and attaches the ticked reagents with their
+  exact counts, splitting a stack when needed (one free bag slot per
+  split). Check the mail and click Send. One craft per mail; without a
+  mailbox, a red error says so.
 - Recipes and skill levels are read from the spellbook at login, a few
   more times during the first minute and a half, and whenever they
   change: there is no need to open the profession windows. Opening one
@@ -116,9 +125,11 @@ uploading; `--curseforge-only` uploads an already tagged version.
   (`GuildProf/Core/`) and simulates a guild of 22 players on a virtual
   clock: convergence, message counts, name learning, a member leaving, a
   player of another guild, version announcements (`SEED=<n>` varies the
-  timings). `lua-5.1 tests/ui_smoke.lua` runs the whole addon against a
-  fake client: window, guild frame tab, a spellbook that loads late,
-  removal of departed members, the update notice.
+  timings). `lua-5.1 tests/order.lua` checks the work-order planner on
+  fixed cases and 3000 random bags. `lua-5.1 tests/ui_smoke.lua` runs the
+  whole addon against a fake client: window, guild frame tab, a spellbook
+  that loads late, removal of departed members, the update notice, a work
+  order with fake bags and mailbox.
 - Recipe data: `GuildProf/Data/Recipes.lua` is generated from the client's
   DB2 tables (SkillLine, SkillLineAbility, SpellEffect, SpellReagents,
   TradeSkillCategory) as CSV from wago.tools:
