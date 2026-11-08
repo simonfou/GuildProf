@@ -10,9 +10,13 @@ leaves the guild.
 ## Status
 
 In use on WoW Forever (1.60.x), the only target client. Releases:
-[github.com/simonfou/GuildProf/releases](https://github.com/simonfou/GuildProf/releases).
+[github.com/simonfou/GuildProf/releases](https://github.com/simonfou/GuildProf/releases),
+also on [CurseForge](https://www.curseforge.com/wow/addons/guildprof).
 
 ## Install
+
+The simplest way is the CurseForge app: it installs GuildProf and keeps
+it up to date. To install by hand:
 
 1. Download **[GuildProf.zip](https://github.com/simonfou/GuildProf/releases/latest/download/GuildProf.zip)**
    (the latest release). GitHub's green **Code** button downloads the
@@ -31,9 +35,9 @@ In use on WoW Forever (1.60.x), the only target client. Releases:
 4. Quit and restart the game (a `/reload` does not pick up a new addon).
    At character select, **AddOns** lists GuildProf.
 
-**Update**: delete the old `AddOns\GuildProf` folder, then repeat steps 1,
-3 and 4. Shared data is kept in the game's `WTF` folder and survives
-updates. When a guild member runs a newer version, GuildProf says so in
+**Update** (the CurseForge app does this on its own): delete the old
+`AddOns\GuildProf` folder, then repeat steps 1, 3 and 4. Shared data is
+kept in the game's `WTF` folder and survives updates. When a guild member runs a newer version, GuildProf says so in
 chat and at the top of its window; `/gp update` shows the download link,
 ready to copy.
 
