@@ -13,6 +13,7 @@ local Roster = {}
 ns.Roster = Roster
 
 local index    -- name form -> online (true / false), nil before a roster
+local exact    -- roster names as the roster spells them
 local complete -- the roster listed every member
 
 -- Spellings of one name: as given, with hyphens as spaces, and the part
@@ -29,8 +30,9 @@ end
 -- entries: array of { name = string, online = bool }; total: the member
 -- count the client reports (offline members included).
 function Roster.Set(entries, total)
-	index = {}
+	index, exact = {}, {}
 	for _, e in ipairs(entries) do
+		exact[e.name] = true
 		for _, f in ipairs(Roster.Forms(e.name)) do
 			if index[f] == nil or e.online then
 				index[f] = e.online and true or false
@@ -41,7 +43,7 @@ function Roster.Set(entries, total)
 end
 
 function Roster.Clear()
-	index, complete = nil, nil
+	index, exact, complete = nil, nil, nil
 end
 
 -- true / false when the roster names the owner, nil otherwise.
@@ -68,12 +70,32 @@ function Roster.Trusted()
 	return index ~= nil and complete == true and ns.me ~= nil and Roster.Has(ns.me)
 end
 
--- The owner left the guild: absent from a trusted roster, and not heard on
--- the guild channel this session (a member who joined after the roster was
--- read speaks there before showing in it).
+-- Another spelling of a member whose record exists under the exact name
+-- the roster gives: a copy of that member's record under a name nobody
+-- speaks with (e.g. "First-Surname" next to "First Surname"). Matching
+-- through Forms alone would keep it in the guild forever.
+function Roster.IsAlias(owner)
+	if not exact or exact[owner] then
+		return false
+	end
+	for _, f in ipairs(Roster.Forms(owner)) do
+		if f ~= owner and exact[f] and Store.Get(f) then
+			return true
+		end
+	end
+	return false
+end
+
+-- The owner left the guild, or is an alias of a member: absent from a
+-- trusted roster, and not heard on the guild channel this session (a
+-- member who joined after the roster was read speaks there before showing
+-- in it).
 function Roster.IsFormer(owner)
 	if owner == ns.me or not Roster.Trusted() then
 		return false
+	end
+	if Roster.IsAlias(owner) then
+		return true
 	end
 	local heard = ns.Sync and ns.Sync.heard
 	if heard and heard[owner] then

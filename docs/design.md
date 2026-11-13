@@ -180,7 +180,11 @@ increasing). Higher rev wins, so merging is order-independent.
   trusted only when it lists every member (a name for each of
   `GetNumGuildMembers()`) and names the player under the records'
   spelling; names match as given, with hyphens as spaces, or without a
-  `-Realm` suffix. Nothing is removed when more than half of the records
+  `-Realm` suffix. A record under another spelling of a member the
+  roster lists exactly, next to that member's own record (`First-Surname`
+  beside `First Surname`), is an alias and goes like a departure: no
+  sender ever speaks under that name, so nothing would replace it.
+  Nothing is removed when more than half of the records
   would go (a misread roster, not a departure), and a character heard on
   the guild channel this session is kept (it may have joined after the
   roster was read). During a sync a former member's record is neither

@@ -461,6 +461,46 @@ do
 	print(("departure (holdout sync + one login): GUILD %d, WHISPER %d"):format(traffic.GUILD, traffic.WHISPER))
 end
 
+-- 8b. A member's record also held under another spelling of the name
+-- ("Player7-Surname" next to "Player7 Surname", the form the roster and
+-- the sender use): a player holding the copy cannot spread it in a sync,
+-- and the copy goes on its own roster read.
+do
+	local member, holder = names[7], nodes[names[8]]
+	local alias = member:gsub(" ", "-")
+	local entries = {}
+	for name, n in pairs(nodes) do
+		if n.guild == "TestGuild" and name ~= names[3] then
+			entries[#entries + 1] = { name = name, online = n.online }
+		end
+	end
+	local lines = {}
+	for _, node in pairs(nodes) do
+		node.ns.Log = function(t) lines[#lines + 1] = node.name .. ": " .. t end
+	end
+	logout(holder)
+	runUntil(clock + 5)
+	holder.ns.Store.Bind(holder.db, holder.guild)
+	holder.ns.Store.Put(alias, holder.ns.Store.Get(member).rev - 100, C.EncodeProfs(randomProfs()))
+	holder.ns.Roster.Clear()
+	login(holder)
+	runUntil(clock + 60)
+	local copies, dropped = 0, 0
+	for _, n in pairs(nodes) do
+		if n.online and n ~= holder and n.ns.Store.Get(alias) then copies = copies + 1 end
+	end
+	for _, l in ipairs(lines) do
+		if l:find("for " .. alias .. " left the guild: dropped", 1, true) then dropped = dropped + 1 end
+	end
+	check(dropped > 0 and copies == 0, ("alias pushed in a sync: dropped %d times, %d copies"):format(dropped, copies))
+	check(holder.ns.Roster.IsAlias(alias) == false, "no roster yet: no alias")
+	holder.ns.Roster.Set(entries, #entries)
+	check(holder.ns.Roster.IsAlias(alias) and not holder.ns.Roster.IsAlias(member), "alias found next to the exact name")
+	local n = holder.ns.Roster.Prune()
+	check(n == 1 and holder.ns.Store.Get(alias) == nil and holder.ns.Store.Get(member) ~= nil,
+		"roster read: alias removed, the member's record kept")
+end
+
 -- 9. A player of another guild with the addon: its guild channel never
 -- reaches this guild, and whispering a member directly gets no records
 -- out and none in.
