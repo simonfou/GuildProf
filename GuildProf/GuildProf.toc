@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: GuildProf
 ## Notes: Which guild members can craft what: professions and recipes shared within the guild.
-## Version: 1.2.0
+## Version: 1.2.1
 ## SavedVariables: GuildProfDB
 ## SavedVariablesPerCharacter: GuildProfCharDB
 ## IconTexture: Interface\Icons\Trade_BlackSmithing
