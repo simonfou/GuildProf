@@ -671,7 +671,8 @@ do
 	check(older.ns.Version.newest == "1.1.0" and notified[older.name] == 1, "an older copy hears of the newer version at login")
 	local replies = count("V sent: older copy at " .. older.name)
 	check(replies >= 1 and replies <= 2, "one answer to the older copy, rarely two (" .. replies .. ")")
-	check(count("V for " .. older.name .. " left to another player") >= 1, "the other newest copy stayed silent")
+	local silent = count("V for " .. older.name .. " left to another player")
+	check(replies + silent == 2, ("each newest copy answered or stayed silent (%d answers, %d silent)"):format(replies, silent))
 
 	login(legacy)
 	runUntil(clock + 30)
