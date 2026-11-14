@@ -615,6 +615,19 @@ ok, err = pcall(function()
 		if l:find("prune: removed Carol Gone", 1, true) then found = true end
 	end
 	check(found, "/gp status shows the last prune")
+
+	-- A record left under the guessed name while another table was bound
+	-- moves under the server's form when the guild is bound again.
+	check(ns.guess == "Alice" and ns.me == "Alice Smith", "guessed name kept beside the server's form")
+	local rev = ns.Store.Get(ns.me).rev
+	ns.Store.Put(ns.guess, rev - 10, gone)
+	IsInGuild = function() return false end
+	event("PLAYER_GUILD_UPDATE")
+	IsInGuild = function() return true end
+	event("PLAYER_GUILD_UPDATE")
+	check(ns.Store.Get("Alice") == nil and ns.Store.Get("Alice Smith").rev == rev and ns.Store.Get("Bob Jones") ~= nil,
+		"guild bound again: no record under the guessed name")
+	event("GUILD_ROSTER_UPDATE")
 end)
 check(ok, "prune: " .. tostring(err))
 

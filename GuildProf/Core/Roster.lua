@@ -46,18 +46,26 @@ function Roster.Clear()
 	index, exact, complete = nil, nil, nil
 end
 
--- true / false when the roster names the owner, nil otherwise.
-function Roster.Online(owner)
-	if not index then
-		return nil
-	end
-	for _, f in ipairs(Roster.Forms(owner)) do
+local function online(forms)
+	for _, f in ipairs(forms) do
 		local v = index[f]
 		if v ~= nil then
 			return v
 		end
 	end
 	return nil
+end
+
+-- true / false when the roster names the owner, nil otherwise.
+function Roster.Online(owner)
+	if not index then
+		return nil
+	end
+	local v = index[owner]
+	if v ~= nil then
+		return v
+	end
+	return online(Roster.Forms(owner))
 end
 
 function Roster.Has(owner)
@@ -70,42 +78,57 @@ function Roster.Trusted()
 	return index ~= nil and complete == true and ns.me ~= nil and Roster.Has(ns.me)
 end
 
--- Another spelling of a member whose record exists under the exact name
--- the roster gives: a copy of that member's record under a name nobody
--- speaks with (e.g. "First-Surname" next to "First Surname"). Matching
--- through Forms alone would keep it in the guild forever.
-function Roster.IsAlias(owner)
-	if not exact or exact[owner] then
+-- Another spelling of a member the roster lists exactly: a copy of that
+-- member's record under a name nobody speaks with (e.g. "First-Surname"
+-- next to "First Surname"). Matching through Forms alone would keep it in
+-- the guild forever. The listed name is taken as the member's record key
+-- when a record is held under it, or when the roster lists the player
+-- under the player's own key: it then spells names as records do.
+local function alias(owner, forms)
+	if exact[owner] then
 		return false
 	end
-	for _, f in ipairs(Roster.Forms(owner)) do
-		if f ~= owner and exact[f] and Store.Get(f) then
+	local asRecords = ns.me ~= nil and exact[ns.me]
+	for _, f in ipairs(forms) do
+		if f ~= owner and exact[f] and (asRecords or Store.Get(f)) then
 			return true
 		end
 	end
 	return false
 end
 
--- The owner left the guild, or is an alias of a member: absent from a
--- trusted roster, and not heard on the guild channel this session (a
+function Roster.IsAlias(owner)
+	return exact ~= nil and alias(owner, Roster.Forms(owner))
+end
+
+-- Why a record no longer belongs to the guild: "alias" (another spelling
+-- of a member) or "left" (absent from the roster). nil for a member, and
+-- whenever that cannot be judged: no trusted roster, the player's own
+-- record, or a character heard on the guild channel this session (a
 -- member who joined after the roster was read speaks there before showing
 -- in it).
-function Roster.IsFormer(owner)
-	if owner == ns.me or not Roster.Trusted() then
-		return false
-	end
-	if Roster.IsAlias(owner) then
-		return true
+function Roster.Former(owner)
+	if owner == ns.me or not Roster.Trusted() or exact[owner] then
+		return nil
 	end
 	local heard = ns.Sync and ns.Sync.heard
 	if heard and heard[owner] then
-		return false
+		return nil
 	end
-	return not Roster.Has(owner)
+	local forms = Roster.Forms(owner)
+	if alias(owner, forms) then
+		return "alias"
+	end
+	if online(forms) == nil then
+		return "left"
+	end
+	return nil
 end
 
--- Removes the records of former members. Refuses when more than half of
--- the records would go: that points at a roster read wrong, not a purge.
+-- Removes the records of former members. Departures are refused when more
+-- than half of the members' records would go: that points at a roster
+-- read wrong, not a purge. Aliases stay out of that count: each one is
+-- matched to a name the roster lists.
 -- Returns the number removed and a description (or the reason for none).
 function Roster.Prune()
 	if not Store.IsBound() then
@@ -115,23 +138,36 @@ function Roster.Prune()
 		return 0, "roster not trusted"
 	end
 	local owners = Store.Owners()
-	local gone = {}
+	local left, aliases = {}, {}
 	for _, owner in ipairs(owners) do
-		if Roster.IsFormer(owner) then
-			gone[#gone + 1] = owner
+		local why = Roster.Former(owner)
+		if why == "alias" then
+			aliases[#aliases + 1] = owner
+		elseif why then
+			left[#left + 1] = owner
 		end
 	end
-	if #gone == 0 then
+	local what = {}
+	local members = #owners - #aliases
+	if #left * 2 > members then
+		what[1] = #left .. " of " .. members .. " records would go: skipped"
+		left = {}
+	elseif #left > 0 then
+		what[1] = "removed " .. table.concat(left, ", ")
+	end
+	if #aliases > 0 then
+		what[#what + 1] = "other spellings removed: " .. table.concat(aliases, ", ")
+	end
+	if #what == 0 then
 		return 0, "nobody left"
 	end
-	if #gone * 2 > #owners then
-		return 0, #gone .. " of " .. #owners .. " records would go: skipped"
-	end
-	for _, owner in ipairs(gone) do
-		Store.Remove(owner)
-		if ns.Version then
-			ns.Version.Forget(owner)
+	for _, list in ipairs({ left, aliases }) do
+		for _, owner in ipairs(list) do
+			Store.Remove(owner)
+			if ns.Version then
+				ns.Version.Forget(owner)
+			end
 		end
 	end
-	return #gone, "removed " .. table.concat(gone, ", ")
+	return #left + #aliases, table.concat(what, "; ")
 end

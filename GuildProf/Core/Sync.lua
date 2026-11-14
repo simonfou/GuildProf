@@ -48,9 +48,11 @@ local lastAnnounce = -1 -- time a V at least as new as this copy's was last hear
 -- Senders heard on the guild channel this session: guild members.
 Sync.heard = {}
 
-local function isFormer(owner)
-	return ns.Roster ~= nil and ns.Roster.IsFormer(owner)
+-- nil for a member; otherwise why the roster rules the record out.
+local function former(owner)
+	return ns.Roster ~= nil and ns.Roster.Former(owner) or nil
 end
+local REFUSED = { left = "left the guild", alias = "another spelling of a member" }
 
 local function now()
 	return GetTime()
@@ -298,7 +300,7 @@ handlers.M = function(body, channel, sender)
 			for owner, rev in (line .. ","):gmatch("([^,=]+)=([0-9a-z]+),") do
 				theirs[owner] = Codec.FromB36(rev)
 				local r = Store.Get(owner)
-				if (not r or r.rev < theirs[owner]) and not isFormer(owner) then
+				if (not r or r.rev < theirs[owner]) and not former(owner) then
 					need[#need + 1] = owner
 				end
 			end
@@ -348,9 +350,11 @@ handlers.R = function(body, channel, sender)
 	if channel == "GUILD" and owner ~= sender then
 		return
 	end
-	-- A relayed record of a character who left the guild stays out.
-	if channel ~= "GUILD" and isFormer(owner) then
-		log("R", channel, "from", sender, "for", owner, "left the guild: dropped")
+	-- A relayed record stays out when its character left the guild, or
+	-- when its name is another spelling of a member's.
+	local why = channel ~= "GUILD" and former(owner)
+	if why then
+		log("R", channel, "from", sender, "for", owner, REFUSED[why] .. ": dropped")
 		return
 	end
 	if Store.Put(owner, rev, data) then

@@ -146,6 +146,12 @@ local function bindGuild()
 	if own then
 		Store.Put(ns.me, own.rev, own.data)
 	end
+	-- The echo renames the record only in the table bound when it arrives:
+	-- a copy left here under the guessed name would be relayed as another
+	-- character's record.
+	if ns.guess and ns.guess ~= ns.me then
+		Store.Rename(ns.guess, ns.me)
+	end
 	if ns.solo then
 		Roster.Clear()
 	end
@@ -193,11 +199,13 @@ end
 handlers.PLAYER_LOGIN = function()
 	local baseName = UnitName("player")
 	ns.baseName = baseName
+	-- The record key until the server's form of the name is known.
+	local name, realm = UnitFullName("player")
+	ns.guess = (realm and realm ~= "") and (name .. "-" .. realm) or name
 	if type(ns.char.me) == "string" and ns.char.me:sub(1, #baseName) == baseName then
 		ns.me = ns.char.me
 	else
-		local name, realm = UnitFullName("player")
-		ns.me = (realm and realm ~= "") and (name .. "-" .. realm) or name
+		ns.me = ns.guess
 	end
 	C_ChatInfo.RegisterAddonMessagePrefix(Comm.PREFIX)
 	ns.RequestRoster()

@@ -490,7 +490,7 @@ do
 		if n.online and n ~= holder and n.ns.Store.Get(alias) then copies = copies + 1 end
 	end
 	for _, l in ipairs(lines) do
-		if l:find("for " .. alias .. " left the guild: dropped", 1, true) then dropped = dropped + 1 end
+		if l:find("for " .. alias .. " another spelling of a member: dropped", 1, true) then dropped = dropped + 1 end
 	end
 	check(dropped > 0 and copies == 0, ("alias pushed in a sync: dropped %d times, %d copies"):format(dropped, copies))
 	check(holder.ns.Roster.IsAlias(alias) == false, "no roster yet: no alias")
@@ -499,6 +499,87 @@ do
 	local n = holder.ns.Roster.Prune()
 	check(n == 1 and holder.ns.Store.Get(alias) == nil and holder.ns.Store.Get(member) ~= nil,
 		"roster read: alias removed, the member's record kept")
+end
+
+-- 8c. Aliases on a player who does not hold the member's own record, in
+-- a guild of their own: a peer without a roster holds every member's
+-- record and an alias of three of them; a recruit with an empty table and
+-- a trusted roster syncs with it.
+do
+	local GUILD = "AliasGuild"
+	local old, recruit = newNode("Old Hand"), newNode("New Recruit")
+	old.guild, recruit.guild = GUILD, GUILD
+	local absent = { "Third Member", "Fourth Member", "Fifth Member" }
+	local aliases = {}
+	local function put(node, owner, rev)
+		node.ns.Store.Put(owner, rev or 1800000000, C.EncodeProfs(randomProfs()))
+	end
+	local function setRoster(node, extra)
+		local entries = { { name = old.name, online = true }, { name = recruit.name, online = true } }
+		for _, name in ipairs(absent) do
+			entries[#entries + 1] = { name = name, online = false }
+		end
+		for _, name in ipairs(extra or {}) do
+			entries[#entries + 1] = { name = name, online = false }
+		end
+		node.ns.Roster.Set(entries, #entries)
+	end
+
+	old.ns.Store.Bind(old.db, GUILD)
+	put(old, old.name)
+	for i, name in ipairs(absent) do
+		aliases[i] = name:gsub(" ", "-")
+		put(old, name)
+		put(old, aliases[i], 1700000000)
+	end
+	login(old)
+	runUntil(clock + 30) -- nobody answers: the peer takes its table as current
+
+	local lines = {}
+	recruit.ns.Log = function(t) lines[#lines + 1] = t end
+	setRoster(recruit)
+	login(recruit)
+	runUntil(clock + 60)
+	local S, R = recruit.ns.Store, recruit.ns.Roster
+	local held, copies, mentioned = 0, 0, 0
+	for i, name in ipairs(absent) do
+		if S.Get(name) then held = held + 1 end
+		if S.Get(aliases[i]) then copies = copies + 1 end
+		for _, l in ipairs(lines) do
+			if l:find(aliases[i], 1, true) then mentioned = mentioned + 1 end
+		end
+	end
+	check(held == 3 and S.Get(old.name) ~= nil, "recruit with an empty table: the members' records arrive (" .. held .. "/3)")
+	check(copies == 0 and mentioned == 0,
+		("recruit with an empty table: aliases not asked for (%d stored, %d records sent)"):format(copies, mentioned))
+
+	-- Aliases stay out of the count that guards departures.
+	for i = 1, 3 do put(recruit, aliases[i], 1700000000) end
+	put(recruit, "Gone One")
+	put(recruit, "Gone Two")
+	local sorted = { aliases[1], aliases[2], aliases[3] }
+	table.sort(sorted)
+	local n, why = R.Prune()
+	check(n == 5 and why == "removed Gone One, Gone Two; other spellings removed: " .. table.concat(sorted, ", ")
+		and #S.Owners() == 4, "aliases and departures go together (" .. why .. ")")
+	put(recruit, aliases[1], 1700000000)
+	for i = 1, 5 do put(recruit, "Gone " .. i) end
+	n, why = R.Prune()
+	check(n == 1 and why == "5 of 9 records would go: skipped; other spellings removed: " .. aliases[1]
+		and S.Get("Gone 1") ~= nil and S.Get(aliases[1]) == nil, "departures refused, the alias still goes (" .. why .. ")")
+	for i = 1, 5 do S.Remove("Gone " .. i) end
+
+	-- A name heard on the guild channel is a member's, whatever it resembles.
+	local speaker = "Third-Other"
+	setRoster(recruit, { "Third" })
+	check(R.Former(speaker) == "alias", "a name that reads as another spelling of a listed member is an alias")
+	recruit.ns.Sync.heard[speaker] = true
+	check(R.Former(speaker) == nil, "heard on the guild channel this session: not an alias")
+	recruit.ns.Sync.heard[speaker] = nil
+	check(R.Former("Gone One") == "left" and R.Former(absent[1]) == nil and R.Former(recruit.name) == nil,
+		"departure, member and own record told apart")
+	logout(old)
+	logout(recruit)
 end
 
 -- 9. A player of another guild with the addon: its guild channel never

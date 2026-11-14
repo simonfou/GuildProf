@@ -174,25 +174,36 @@ increasing). Higher rev wins, so merging is order-independent.
   1/s, whispers at 10/s; throttled sends retried.
 - Own name: the server echoes GUILD messages to their sender; the first echo
   gives the exact form others see (Forever gives `First Surname`),
-  and the record is renamed and republished under it.
+  and the record is renamed and republished under it. The rename happens
+  in the table bound when the echo arrives; each time a guild is bound, a
+  record still under the guessed name moves under the server's form.
 - **Departed members**: on each roster update (`GUILD_ROSTER_UPDATE`) the
   records of characters the roster no longer lists are removed. A roster is
   trusted only when it lists every member (a name for each of
   `GetNumGuildMembers()`) and names the player under the records'
   spelling; names match as given, with hyphens as spaces, or without a
   `-Realm` suffix. A record under another spelling of a member the
-  roster lists exactly, next to that member's own record (`First-Surname`
-  beside `First Surname`), is an alias and goes like a departure: no
-  sender ever speaks under that name, so nothing would replace it.
-  Nothing is removed when more than half of the records
-  would go (a misread roster, not a departure), and a character heard on
-  the guild channel this session is kept (it may have joined after the
-  roster was read). During a sync a former member's record is neither
-  asked for (`N`) nor accepted by whisper (`R`), so a player who missed
-  the departure cannot bring it back. A character who rejoins republishes
-  its record at its next login, like any record a peer lacks.
+  roster lists exactly (`First-Surname` for `First Surname`) is an alias
+  and goes like a departure: no sender ever speaks under that name, so
+  nothing would replace it. The listed name counts as the member's record
+  key when a record is held under it, or when the roster lists the player
+  under the player's own key (the roster then spells names as records
+  do), so an alias is refused even by a player who does not hold the
+  member's record yet. A roster that spells names another way than
+  senders do finds no alias.
+  No departure is removed when more than half of the members' records
+  would go (a misread roster, not a departure); aliases stay out of that
+  count and go either way. A character heard on the guild channel this
+  session is kept, whatever its name resembles (it may have joined after
+  the roster was read). During a sync a former member's record or an
+  alias is neither asked for (`N`) nor accepted by whisper (`R`), so a
+  player who missed the departure cannot bring it back; the trace names
+  the reason (`left the guild` or `another spelling of a member`). A
+  character who rejoins republishes its record at its next login, like
+  any record a peer lacks.
   `GuildProfDB.diag.roster` shows the roster read (count, trusted, first
-  name) and `/gp status` the last removal.
+  name) and `/gp status` the last removal (`removed <names>`,
+  `other spellings removed: <names>`).
 
 Measured headless (`tests/run.lua`, 20 players, about 500 bytes per record):
 
